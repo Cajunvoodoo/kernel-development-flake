@@ -149,7 +149,7 @@
       };
 
       kdf-cli = pkgs.callPackage ./kdf-cli {
-        inherit uv2nix pyproject-nix pyproject-build-systems;
+        inherit uv2nix pyproject-nix pyproject-build-systems kdf-init;
       };
 
       devShell =

@@ -2,7 +2,6 @@
 """kdf: Kernel development flake - Manage kdf-init initramfs and kernel execution"""
 
 import argparse
-import hashlib
 import logging
 import os
 import subprocess
@@ -13,6 +12,13 @@ from pathlib import Path
 from kdf_cli.bg_tasks import BackgroundTaskManager
 from kdf_cli.qemu import QemuCommand
 from kdf_cli.virtiofs import VirtiofsError, create_virtiofs_tasks
+from kdf_cli.nix import resolve_kernel_and_initramfs
+from kdf_cli.initramfs import (
+    get_prebuilt_initramfs,
+    get_prebuilt_init,
+    copy_file,
+    create_initramfs_archive,
+)
 
 # Set up logging
 logging.basicConfig(
@@ -26,166 +32,9 @@ logging.basicConfig(
 logger = logging.getLogger('kdf')
 
 
-def get_cache_dir() -> Path:
-    """Get XDG cache directory for kdf"""
-    xdg_cache = os.environ.get("XDG_CACHE_HOME")
-    if xdg_cache:
-        cache_dir = Path(xdg_cache) / "kdf"
-    else:
-        cache_dir = Path.home() / ".cache" / "kdf"
-
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir
-
-
-def hash_file(path: Path) -> str:
-    """Calculate SHA256 hash of file"""
-    sha256 = hashlib.sha256()
-    with open(path, "rb") as f:
-        while chunk := f.read(8192):
-            sha256.update(chunk)
-    return sha256.hexdigest()
-
-
-def copy_file(src: Path, dst: Path) -> None:
-    """Copy file from src to dst"""
-    subprocess.run(["cp", str(src), str(dst)], check=True)
-
-
-def get_cached_initramfs(binary_hash: str) -> Path:
-    """Get path to cached initramfs for given binary hash"""
-    cache_dir = get_cache_dir()
-    return cache_dir / f"initramfs-{binary_hash}.cpio"
-
-
-def get_module_dependencies(module_path: Path) -> list[str]:
-    """Get module dependencies using modinfo"""
-    try:
-        result = subprocess.run(
-            ["modinfo", "-F", "depends", str(module_path)],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        deps = result.stdout.strip()
-        if deps:
-            return [d.strip() for d in deps.split(',') if d.strip()]
-        return []
-    except subprocess.CalledProcessError:
-        return []
-
-def topological_sort_modules(modules: list[Path]) -> list[Path]:
-    """Sort modules in dependency order using topological sort"""
-    # Build dependency graph
-    module_map = {}  # name (without .ko.xz) -> Path
-    dependencies = {}  # name -> list of dependency names
-
-    for module_path in modules:
-        name = module_path.name
-        # Remove compression extensions
-        if name.endswith('.xz'):
-            name = name[:-3]
-        if name.endswith('.gz'):
-            name = name[:-3]
-        # Remove .ko extension
-        if name.endswith('.ko'):
-            name = name[:-3]
-
-        module_map[name] = module_path
-        dependencies[name] = get_module_dependencies(module_path)
-
-    # Topological sort
-    sorted_modules = []
-    visited = set()
-
-    def visit(name: str):
-        if name in visited:
-            return
-        visited.add(name)
-
-        # Visit dependencies first
-        for dep in dependencies.get(name, []):
-            if dep in module_map:  # Only if we have this dependency
-                visit(dep)
-
-        if name in module_map:
-            sorted_modules.append(module_map[name])
-
-    # Visit all modules
-    for name in module_map:
-        visit(name)
-
-    return sorted_modules
-
-def create_initramfs_archive(init_binary: Path, output_path: Path, modules: list[Path], moddir: str) -> None:
-    """Create initramfs cpio archive from init binary and optional kernel modules"""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmppath = Path(tmpdir)
-
-        # Copy init binary to temp directory
-        init_path = tmppath / "init"
-        copy_file(init_binary, init_path)
-        subprocess.run(["chmod", "+x", str(init_path)], check=True)
-
-        # Copy kernel modules if provided
-        if modules:
-            # Sort modules by dependencies
-            sorted_modules = topological_sort_modules(modules)
-            logger.info("Module load order after dependency resolution:")
-            for idx, mod in enumerate(sorted_modules, 1):
-                logger.info(f"  {idx}. {mod.name}")
-
-            # Strip leading slash for creating directory in tmpdir
-            moddir_relative = moddir.lstrip("/")
-            modules_dir = tmppath / moddir_relative
-            modules_dir.mkdir(parents=True, exist_ok=True)
-
-            for idx, module_path in enumerate(sorted_modules):
-                if not module_path.exists():
-                    raise FileNotFoundError(f"Kernel module not found: {module_path}")
-
-                # Decompress if needed and add numeric prefix for load order
-                module_name = module_path.name
-                prefix = f"{idx:02d}-"  # Two-digit prefix: 00-, 01-, etc.
-
-                if module_name.endswith('.xz'):
-                    # Decompress .xz module
-                    decompressed_name = module_name[:-3]  # Remove .xz extension
-                    final_name = prefix + decompressed_name
-                    module_dest = modules_dir / final_name
-                    subprocess.run(["xz", "-dc", str(module_path)], stdout=open(module_dest, "wb"), check=True)
-                    logger.info(f"Added module: {module_name} -> {final_name}")
-                elif module_name.endswith('.gz'):
-                    # Decompress .gz module
-                    decompressed_name = module_name[:-3]  # Remove .gz extension
-                    final_name = prefix + decompressed_name
-                    module_dest = modules_dir / final_name
-                    subprocess.run(["gzip", "-dc", str(module_path)], stdout=open(module_dest, "wb"), check=True)
-                    logger.info(f"Added module: {module_name} -> {final_name}")
-                else:
-                    # Copy as-is
-                    final_name = prefix + module_name
-                    module_dest = modules_dir / final_name
-                    copy_file(module_path, module_dest)
-                    logger.info(f"Added module: {module_name} -> {final_name}")
-
-        # Create cpio archive
-        with open(output_path, "wb") as f:
-            subprocess.run(
-                "find . -print0 | cpio --null -o -H newc",
-                cwd=tmpdir,
-                shell=True,
-                stdout=f,
-                check=True,
-            )
-
-
 def cmd_build_initramfs(args):
     """Build initramfs cpio archive from init binary"""
     try:
-        if not args.init_binary.exists():
-            raise FileNotFoundError(f"Init binary not found: {args.init_binary}")
-
         # Parse module paths if provided
         modules = []
         if args.modules:
@@ -196,28 +45,33 @@ def cmd_build_initramfs(args):
         # Determine output path
         output_path = args.output if args.output else Path("./initramfs.cpio")
 
-        # Check cache if enabled (skip cache if modules are included)
-        if not args.no_cache and not modules:
-            binary_hash = hash_file(args.init_binary)
-            cached_path = get_cached_initramfs(binary_hash)
-
-            if cached_path.exists():
-                logger.info(f"Using cached initramfs: {cached_path}")
-                copy_file(cached_path, output_path)
-                logger.info(f"Copied to: {output_path}")
+        # Special case: No modules and no custom init - just copy prebuilt initramfs if available
+        if not modules and args.init_binary is None:
+            prebuilt_initramfs = get_prebuilt_initramfs()
+            if prebuilt_initramfs is not None:
+                logger.info(f"Copying prebuilt initramfs to: {output_path}")
+                copy_file(prebuilt_initramfs, output_path)
                 return
 
-            # Cache miss: build to cache, then copy to output
-            create_initramfs_archive(args.init_binary, cached_path, modules, args.moddir)
-            logger.info(f"Created initramfs: {cached_path}")
-
-            copy_file(cached_path, output_path)
-            logger.info(f"Copied to: {output_path}")
-            logger.info(f"Cached as: {cached_path}")
+        # Determine which init binary to use
+        if args.init_binary is None:
+            # Try to use prebuilt init
+            prebuilt_init = get_prebuilt_init()
+            if prebuilt_init is None:
+                raise FileNotFoundError(
+                    "No init binary specified and no prebuilt init available. "
+                    "Please provide an init binary as the first argument."
+                )
+            logger.info(f"Using prebuilt init binary: {prebuilt_init}")
+            init_binary = prebuilt_init
         else:
-            # No caching: build directly to output
-            create_initramfs_archive(args.init_binary, output_path, modules, args.moddir)
-            logger.info(f"Created initramfs: {output_path}")
+            if not args.init_binary.exists():
+                raise FileNotFoundError(f"Init binary not found: {args.init_binary}")
+            init_binary = args.init_binary
+
+        # Build initramfs directly to output
+        create_initramfs_archive(init_binary, output_path, modules, args.moddir)
+        logger.info(f"Created initramfs: {output_path}")
     except Exception as e:
         logger.error(f"Error: {e}")
         sys.exit(1)
@@ -225,13 +79,42 @@ def cmd_build_initramfs(args):
 
 def cmd_run(args):
     """Run QEMU with kernel and initramfs"""
-    if not args.kernel.exists():
-        logger.error(f"Kernel not found: {args.kernel}")
-        sys.exit(1)
+    # Handle --release flag to resolve kernel from nixpkgs
+    if args.release is not None:
+        try:
+            kernel, initramfs = resolve_kernel_and_initramfs(
+                version=args.release if args.release else None,
+                custom_initramfs=args.initramfs
+            )
+            logger.info(f"Resolved kernel: {kernel}")
+            logger.info(f"Resolved initramfs: {initramfs}")
+        except Exception as e:
+            logger.error(f"Failed to resolve kernel from nixpkgs: {e}")
+            sys.exit(1)
+    else:
+        # Use provided kernel
+        kernel = args.kernel
+        if not kernel.exists():
+            logger.error(f"Kernel not found: {kernel}")
+            sys.exit(1)
 
-    if not args.initramfs.exists():
-        logger.error(f"Initramfs not found: {args.initramfs}")
-        sys.exit(1)
+        # Determine which initramfs to use
+        initramfs = args.initramfs
+        if initramfs is None:
+            # Try to use prebuilt initramfs
+            prebuilt_initramfs = get_prebuilt_initramfs()
+            if prebuilt_initramfs is None:
+                logger.error(
+                    "No initramfs specified and no prebuilt initramfs available. "
+                    "Please provide --initramfs or build kdf-cli from the Nix package."
+                )
+                sys.exit(1)
+            initramfs = prebuilt_initramfs
+            logger.info(f"Using prebuilt initramfs: {initramfs}")
+
+        if not initramfs.exists():
+            logger.error(f"Initramfs not found: {initramfs}")
+            sys.exit(1)
 
     # Create background task manager
     task_manager = BackgroundTaskManager()
@@ -246,7 +129,7 @@ def cmd_run(args):
 
         # Build QEMU command with optional DAX support for virtiofs
         enable_dax = args.virtiofs_dax and args.virtiofs
-        qemu_cmd = QemuCommand(args.kernel, args.initramfs, args.memory, enable_dax)
+        qemu_cmd = QemuCommand(kernel, initramfs, args.memory, enable_dax)
 
         # Register all tasks with QEMU (adds runtime info like sockets)
         task_manager.register_all_with_qemu(qemu_cmd)
@@ -280,16 +163,17 @@ def main():
     build_subparsers = build_parser.add_subparsers(dest="build_command")
 
     initramfs_parser = build_subparsers.add_parser("initramfs", help="Build initramfs cpio archive")
-    initramfs_parser.add_argument("init_binary", type=Path, help="Path to init binary")
-    initramfs_parser.add_argument("--output", "-o", type=Path, help="Output cpio file (default: cached)")
+    initramfs_parser.add_argument("init_binary", type=Path, nargs='?', default=None, help="Path to init binary (default: use prebuilt kdf-init if available)")
+    initramfs_parser.add_argument("--output", "-o", type=Path, help="Output cpio file (default: ./initramfs.cpio)")
     initramfs_parser.add_argument("--module", "-m", action="append", dest="modules", help="Kernel module to include (can be specified multiple times)")
     initramfs_parser.add_argument("--moddir", default="/init-modules", help="Directory to store modules in initramfs (default: /init-modules)")
-    initramfs_parser.add_argument("--no-cache", action="store_true", help="Skip cache check and don't cache result")
 
     # run subcommand
     run_parser = subparsers.add_parser("run", help="Run kernel with initramfs in QEMU")
-    run_parser.add_argument("--kernel", type=Path, required=True, help="Path to kernel image")
-    run_parser.add_argument("--initramfs", type=Path, required=True, help="Path to initramfs cpio")
+    kernel_group = run_parser.add_mutually_exclusive_group(required=True)
+    kernel_group.add_argument("--kernel", type=Path, help="Path to kernel image")
+    kernel_group.add_argument("--release", "-r", nargs='?', const='', metavar='VERSION', help="Use nixpkgs kernel release (optionally specify version, defaults to system kernel)")
+    run_parser.add_argument("--initramfs", type=Path, default=None, help="Path to initramfs cpio (default: use prebuilt if available)")
     run_parser.add_argument("--virtiofs", "-v", action="append", help="Virtiofs share: tag:host_path:guest_path[:overlay]")
     run_parser.add_argument("--cmdline", default="", help="Additional kernel cmdline arguments")
     run_parser.add_argument("--memory", "-m", default="512M", help="QEMU memory (default: 512M)")

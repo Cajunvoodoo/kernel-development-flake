@@ -20,3 +20,4 @@ result-dev
 
 target/
 *.cpio
+kdf.log
