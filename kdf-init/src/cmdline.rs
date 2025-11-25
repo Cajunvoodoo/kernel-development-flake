@@ -34,11 +34,13 @@ pub struct Config {
     pub env_vars: HashMap<String, String>,
     /// Command to execute
     pub command: Option<String>,
+    /// Directory to load kernel modules from (if None, no modules loaded)
+    pub moddir: Option<String>,
 }
 
 /// Parse kernel cmdline into Config
 ///
-/// Supports: init.virtiofs, init.symlinks, init.env.XXX, init.cmd
+/// Supports: init.virtiofs, init.symlinks, init.env.XXX, init.cmd, init.moddir
 pub fn parse_cmdline(cmdline: &str) -> Result<Config> {
     let mut config = Config::default();
 
@@ -53,6 +55,8 @@ pub fn parse_cmdline(cmdline: &str) -> Result<Config> {
             }
         } else if let Some(value) = param.strip_prefix("init.cmd=") {
             config.command = Some(value.to_string());
+        } else if let Some(value) = param.strip_prefix("init.moddir=") {
+            config.moddir = Some(value.to_string());
         }
     }
 
