@@ -22,7 +22,7 @@
     }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      pkgs = nixpkgs.legacyPackages.${system}.extend fenix.overlays.default;
 
       # Flake options
       enableBPF = true;
@@ -126,18 +126,26 @@
         builtins.readFile ./scripts/generate_rust_analyzer.py
       );
 
-      avy-init = pkgs.callPackage ./avy-init {
+      kdf-init = pkgs.callPackage ./kdf-init {
         inherit fenix naersk;
       };
 
       devShell =
         let
+          # Rust toolchain with musl target for static compilation
+          rustToolchain = pkgs.fenix.combine [
+            pkgs.fenix.stable.rustc
+            pkgs.fenix.stable.cargo
+            pkgs.fenix.stable.rustfmt
+            pkgs.fenix.targets.x86_64-unknown-linux-musl.stable.rust-std
+          ];
+
           nativeBuildInputs =
             with pkgs;
             [
               bear # for compile_commands.json, use bear -- make
-              runQemu
-              runGdb
+              # runQemu (TODO: replace with kdf-cli)
+              # runGdb (TODO: replace with kdf-cli)
               git
               gdb
               qemu
@@ -147,24 +155,21 @@
               flawfinder
               cppcheck
               sparse
-              rustc
-
             ]
             ++ lib.optionals enableRust [
-              cargo
-              rustfmt
-              genRustAnalyzer
+              rustToolchain
+              # genRustAnalyzer
             ];
           buildInputs = [
             pkgs.nukeReferences
-            kernel.dev
+            # kernel.dev
           ];
         in
         pkgs.mkShell {
           inherit buildInputs nativeBuildInputs;
-          KERNEL = kernel.dev;
-          KERNEL_VERSION = kernel.modDirVersion;
-          RUST_LIB_SRC = pkgs.rustPlatform.rustLibSrc;
+          # KERNEL = kernel.dev;
+          # KERNEL_VERSION = kernel.modDirVersion;
+          # RUST_LIB_SRC = pkgs.rustPlatform.rustLibSrc;
         };
     in
     {
@@ -181,7 +186,7 @@
           ebpf-stacktrace
           rustModule
           genRustAnalyzer
-          avy-init
+          kdf-init
           ;
         kernelConfig = configfile;
       };

@@ -1,4 +1,8 @@
-{ pkgs, fenix, naersk }:
+{
+  pkgs,
+  fenix,
+  naersk,
+}:
 
 let
   # Use the musl cross-compilation target
@@ -21,7 +25,7 @@ let
   };
 in
 naersk-lib.buildPackage {
-  pname = "avy-init";
+  pname = "kdf-init";
   version = "0.1.0";
 
   src = ./.;
@@ -35,8 +39,10 @@ naersk-lib.buildPackage {
   TARGET_CC = "${crossPkgs.stdenv.cc}/bin/${crossPkgs.stdenv.cc.targetPrefix}cc";
 
   CARGO_BUILD_RUSTFLAGS = [
-    "-C" "target-feature=+crt-static"
-    "-C" "link-arg=-static"
+    "-C"
+    "target-feature=+crt-static"
+    "-C"
+    "link-arg=-static"
   ];
 
   meta = with pkgs.lib; {

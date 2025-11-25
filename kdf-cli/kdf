@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""kdf: Kernel development flake - Manage kdf-init initramfs and kernel execution"""
+
+import argparse
+import hashlib
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def get_cache_dir() -> Path:
+    """Get XDG cache directory for kdf"""
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        cache_dir = Path(xdg_cache) / "kdf"
+    else:
+        cache_dir = Path.home() / ".cache" / "kdf"
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def hash_file(path: Path) -> str:
+    """Calculate SHA256 hash of file"""
+    sha256 = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(8192):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def copy_file(src: Path, dst: Path) -> None:
+    """Copy file from src to dst"""
+    subprocess.run(["cp", str(src), str(dst)], check=True)
+
+
+def get_cached_initramfs(binary_hash: str) -> Path:
+    """Get path to cached initramfs for given binary hash"""
+    cache_dir = get_cache_dir()
+    return cache_dir / f"initramfs-{binary_hash}.cpio"
+
+
+def create_initramfs_archive(init_binary: Path, output_path: Path) -> None:
+    """Create initramfs cpio archive from init binary"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmppath = Path(tmpdir)
+
+        # Copy init binary to temp directory
+        init_path = tmppath / "init"
+        copy_file(init_binary, init_path)
+        subprocess.run(["chmod", "+x", str(init_path)], check=True)
+
+        # Create cpio archive
+        with open(output_path, "wb") as f:
+            subprocess.run(
+                "find . -print0 | cpio --null -o -H newc",
+                cwd=tmpdir,
+                shell=True,
+                stdout=f,
+                check=True,
+            )
+
+
+def cmd_build_initramfs(args):
+    """Build initramfs cpio archive from init binary"""
+    if not args.init_binary.exists():
+        print(f"Error: init binary not found: {args.init_binary}", file=sys.stderr)
+        sys.exit(1)
+
+    # Determine output path
+    output_path = args.output if args.output else Path("./initramfs.cpio")
+
+    # Check cache if enabled
+    if not args.no_cache:
+        binary_hash = hash_file(args.init_binary)
+        cached_path = get_cached_initramfs(binary_hash)
+
+        if cached_path.exists():
+            print(f"Using cached initramfs: {cached_path}")
+            copy_file(cached_path, output_path)
+            print(f"Copied to: {output_path}")
+            return
+
+        # Cache miss: build to cache, then copy to output
+        create_initramfs_archive(args.init_binary, cached_path)
+        print(f"Created initramfs: {cached_path}")
+
+        copy_file(cached_path, output_path)
+        print(f"Copied to: {output_path}")
+        print(f"Cached as: {cached_path}")
+    else:
+        # No caching: build directly to output
+        create_initramfs_archive(args.init_binary, output_path)
+        print(f"Created initramfs: {output_path}")
+
+
+def cmd_run(args):
+    """Run QEMU with kernel and initramfs"""
+    if not args.kernel.exists():
+        print(f"Error: kernel not found: {args.kernel}", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.initramfs.exists():
+        print(f"Error: initramfs not found: {args.initramfs}", file=sys.stderr)
+        sys.exit(1)
+
+    cmd = [
+        "qemu-system-x86_64",
+        "-kernel", str(args.kernel),
+        "-initrd", str(args.initramfs),
+        "-m", args.memory,
+        "-nographic",
+        "-serial", "mon:stdio",
+        "-append", f"console=ttyS0 {args.cmdline}",
+    ]
+
+    print(f"Running: {' '.join(cmd)}")
+    subprocess.run(cmd)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="kdf: Kernel development flake tools")
+    subparsers = parser.add_subparsers(dest="command", help="Subcommands")
+
+    # build initramfs subcommand
+    build_parser = subparsers.add_parser("build", help="Build subcommands")
+    build_subparsers = build_parser.add_subparsers(dest="build_command")
+
+    initramfs_parser = build_subparsers.add_parser("initramfs", help="Build initramfs cpio archive")
+    initramfs_parser.add_argument("init_binary", type=Path, help="Path to init binary")
+    initramfs_parser.add_argument("--output", "-o", type=Path, help="Output cpio file (default: cached)")
+    initramfs_parser.add_argument("--no-cache", action="store_true", help="Skip cache check and don't cache result")
+
+    # run subcommand
+    run_parser = subparsers.add_parser("run", help="Run kernel with initramfs in QEMU")
+    run_parser.add_argument("--kernel", type=Path, required=True, help="Path to kernel image")
+    run_parser.add_argument("--initramfs", type=Path, required=True, help="Path to initramfs cpio")
+    run_parser.add_argument("--cmdline", default="", help="Additional kernel cmdline arguments")
+    run_parser.add_argument("--memory", "-m", default="512M", help="QEMU memory (default: 512M)")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    if args.command == "build":
+        if not args.build_command:
+            build_parser.print_help()
+            sys.exit(1)
+        if args.build_command == "initramfs":
+            cmd_build_initramfs(args)
+    elif args.command == "run":
+        cmd_run(args)
+
+
+if __name__ == "__main__":
+    main()
