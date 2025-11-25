@@ -3,10 +3,8 @@
 
 import argparse
 import logging
-import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from kdf_cli.bg_tasks import BackgroundTaskManager
@@ -23,13 +21,10 @@ from kdf_cli.initramfs import (
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('kdf.log'),
-        logging.StreamHandler(sys.stderr)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("kdf.log"), logging.StreamHandler(sys.stderr)],
 )
-logger = logging.getLogger('kdf')
+logger = logging.getLogger("kdf")
 
 
 def cmd_build_initramfs(args):
@@ -84,7 +79,7 @@ def cmd_run(args):
         try:
             kernel, initramfs = resolve_kernel_and_initramfs(
                 version=args.release if args.release else None,
-                custom_initramfs=args.initramfs
+                custom_initramfs=args.initramfs,
             )
             logger.info(f"Resolved kernel: {kernel}")
             logger.info(f"Resolved initramfs: {initramfs}")
@@ -99,8 +94,10 @@ def cmd_run(args):
             sys.exit(1)
 
         # Determine which initramfs to use
-        initramfs = args.initramfs
-        if initramfs is None:
+        initramfs: Path
+        if args.initramfs is not None:
+            initramfs = args.initramfs
+        else:
             # Try to use prebuilt initramfs
             prebuilt_initramfs = get_prebuilt_initramfs()
             if prebuilt_initramfs is None:
@@ -109,7 +106,8 @@ def cmd_run(args):
                     "Please provide --initramfs or build kdf-cli from the Nix package."
                 )
                 sys.exit(1)
-            initramfs = prebuilt_initramfs
+            # TODO: ty doesn't understand that sys.exit(1) never returns, so it can't narrow the type
+            initramfs = prebuilt_initramfs  # type: ignore[invalid-assignment]
             logger.info(f"Using prebuilt initramfs: {initramfs}")
 
         if not initramfs.exists():
@@ -155,30 +153,81 @@ def cmd_run(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="kdf", description="kdf: Kernel development flake tools")
+    parser = argparse.ArgumentParser(
+        prog="kdf", description="kdf: Kernel development flake tools"
+    )
     subparsers = parser.add_subparsers(dest="command", help="Subcommands")
 
     # build initramfs subcommand
     build_parser = subparsers.add_parser("build", help="Build subcommands")
     build_subparsers = build_parser.add_subparsers(dest="build_command")
 
-    initramfs_parser = build_subparsers.add_parser("initramfs", help="Build initramfs cpio archive")
-    initramfs_parser.add_argument("init_binary", type=Path, nargs='?', default=None, help="Path to init binary (default: use prebuilt kdf-init if available)")
-    initramfs_parser.add_argument("--output", "-o", type=Path, help="Output cpio file (default: ./initramfs.cpio)")
-    initramfs_parser.add_argument("--module", "-m", action="append", dest="modules", help="Kernel module to include (can be specified multiple times)")
-    initramfs_parser.add_argument("--moddir", default="/init-modules", help="Directory to store modules in initramfs (default: /init-modules)")
+    initramfs_parser = build_subparsers.add_parser(
+        "initramfs", help="Build initramfs cpio archive"
+    )
+    initramfs_parser.add_argument(
+        "init_binary",
+        type=Path,
+        nargs="?",
+        default=None,
+        help="Path to init binary (default: use prebuilt kdf-init if available)",
+    )
+    initramfs_parser.add_argument(
+        "--output", "-o", type=Path, help="Output cpio file (default: ./initramfs.cpio)"
+    )
+    initramfs_parser.add_argument(
+        "--module",
+        "-m",
+        action="append",
+        dest="modules",
+        help="Kernel module to include (can be specified multiple times)",
+    )
+    initramfs_parser.add_argument(
+        "--moddir",
+        default="/init-modules",
+        help="Directory to store modules in initramfs (default: /init-modules)",
+    )
 
     # run subcommand
     run_parser = subparsers.add_parser("run", help="Run kernel with initramfs in QEMU")
     kernel_group = run_parser.add_mutually_exclusive_group(required=True)
     kernel_group.add_argument("--kernel", type=Path, help="Path to kernel image")
-    kernel_group.add_argument("--release", "-r", nargs='?', const='', metavar='VERSION', help="Use nixpkgs kernel release (optionally specify version, defaults to system kernel)")
-    run_parser.add_argument("--initramfs", type=Path, default=None, help="Path to initramfs cpio (default: use prebuilt if available)")
-    run_parser.add_argument("--virtiofs", "-v", action="append", help="Virtiofs share: tag:host_path:guest_path[:overlay]")
-    run_parser.add_argument("--cmdline", default="", help="Additional kernel cmdline arguments")
-    run_parser.add_argument("--memory", "-m", default="512M", help="QEMU memory (default: 512M)")
-    run_parser.add_argument("--virtiofs-dax", action="store_true", help="Enable virtiofs DAX (shared memory backing) for better performance")
-    run_parser.add_argument("--moddir", default="/init-modules", help="Directory to load kernel modules from (default: /init-modules)")
+    kernel_group.add_argument(
+        "--release",
+        "-r",
+        nargs="?",
+        const="",
+        metavar="VERSION",
+        help="Use nixpkgs kernel release (optionally specify version, defaults to system kernel)",
+    )
+    run_parser.add_argument(
+        "--initramfs",
+        type=Path,
+        default=None,
+        help="Path to initramfs cpio (default: use prebuilt if available)",
+    )
+    run_parser.add_argument(
+        "--virtiofs",
+        "-v",
+        action="append",
+        help="Virtiofs share: tag:host_path:guest_path[:overlay]",
+    )
+    run_parser.add_argument(
+        "--cmdline", default="", help="Additional kernel cmdline arguments"
+    )
+    run_parser.add_argument(
+        "--memory", "-m", default="512M", help="QEMU memory (default: 512M)"
+    )
+    run_parser.add_argument(
+        "--virtiofs-dax",
+        action="store_true",
+        help="Enable virtiofs DAX (shared memory backing) for better performance",
+    )
+    run_parser.add_argument(
+        "--moddir",
+        default="/init-modules",
+        help="Directory to load kernel modules from (default: /init-modules)",
+    )
 
     args = parser.parse_args()
 

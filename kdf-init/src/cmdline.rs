@@ -133,14 +133,14 @@ mod tests {
         assert_eq!(config.virtiofs_mounts.len(), 1);
         assert_eq!(config.virtiofs_mounts[0].tag, "share");
         assert_eq!(config.virtiofs_mounts[0].path, "/mnt/share");
-        assert_eq!(config.virtiofs_mounts[0].with_overlay, false);
+        assert!(!config.virtiofs_mounts[0].with_overlay);
     }
 
     #[test]
     fn test_parse_virtiofs_with_overlay() {
         let config = parse_cmdline("init.virtiofs=share:/mnt/share:Y").unwrap();
         assert_eq!(config.virtiofs_mounts.len(), 1);
-        assert_eq!(config.virtiofs_mounts[0].with_overlay, true);
+        assert!(config.virtiofs_mounts[0].with_overlay);
     }
 
     #[test]
@@ -149,15 +149,16 @@ mod tests {
         assert_eq!(config.virtiofs_mounts.len(), 2);
         assert_eq!(config.virtiofs_mounts[0].tag, "share1");
         assert_eq!(config.virtiofs_mounts[0].path, "/mnt/a");
-        assert_eq!(config.virtiofs_mounts[0].with_overlay, false);
+        assert!(!config.virtiofs_mounts[0].with_overlay);
         assert_eq!(config.virtiofs_mounts[1].tag, "share2");
         assert_eq!(config.virtiofs_mounts[1].path, "/mnt/b");
-        assert_eq!(config.virtiofs_mounts[1].with_overlay, true);
+        assert!(config.virtiofs_mounts[1].with_overlay);
     }
 
     #[test]
     fn test_parse_symlinks() {
-        let config = parse_cmdline("init.symlinks=/bin/sh:/bin/bash,/usr/bin/vi:/usr/bin/vim").unwrap();
+        let config =
+            parse_cmdline("init.symlinks=/bin/sh:/bin/bash,/usr/bin/vi:/usr/bin/vim").unwrap();
         assert_eq!(config.symlinks.len(), 2);
         assert_eq!(config.symlinks[0].source, "/bin/sh");
         assert_eq!(config.symlinks[0].target, "/bin/bash");
@@ -187,7 +188,7 @@ mod tests {
         assert_eq!(config.virtiofs_mounts.len(), 1);
         assert_eq!(config.virtiofs_mounts[0].tag, "share");
         assert_eq!(config.virtiofs_mounts[0].path, "/mnt");
-        assert_eq!(config.virtiofs_mounts[0].with_overlay, true);
+        assert!(config.virtiofs_mounts[0].with_overlay);
 
         assert_eq!(config.symlinks.len(), 1);
         assert_eq!(config.symlinks[0].source, "/bin/sh");

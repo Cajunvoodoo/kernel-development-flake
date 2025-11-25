@@ -47,7 +47,13 @@ pub fn mount_kernel_filesystems() -> Result<()> {
     for m in KERNEL_MOUNTS {
         // Create mount point if it doesn't exist
         rustix::fs::mkdir(m.target, Mode::from_raw_mode(0o755))
-            .or_else(|e| if e == rustix::io::Errno::EXIST { Ok(()) } else { Err(e) })
+            .or_else(|e| {
+                if e == rustix::io::Errno::EXIST {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            })
             .with_context(|| format!("Failed to create {}", m.target))?;
 
         // Mount filesystem
@@ -74,7 +80,10 @@ pub fn load_kernel_modules(modules_dir: Option<&str>) -> Result<()> {
 
     // Check if modules directory exists
     if !std::path::Path::new(modules_dir).exists() {
-        println!("kdf-init: moddir '{}' does not exist, skipping module loading", modules_dir);
+        println!(
+            "kdf-init: moddir '{}' does not exist, skipping module loading",
+            modules_dir
+        );
         return Ok(());
     }
 
@@ -93,22 +102,27 @@ pub fn load_kernel_modules(modules_dir: Option<&str>) -> Result<()> {
         // Only process .ko files (including compressed ones)
         if let Some(ext) = path.extension() {
             let ext_str = ext.to_string_lossy();
-            if ext_str == "ko" || path.to_string_lossy().ends_with(".ko.xz") || path.to_string_lossy().ends_with(".ko.gz") {
+            if ext_str == "ko"
+                || path.to_string_lossy().ends_with(".ko.xz")
+                || path.to_string_lossy().ends_with(".ko.gz")
+            {
                 total_count += 1;
                 let file_name = path.file_name().unwrap().to_string_lossy();
                 println!("kdf-init: loading module {}", file_name);
 
                 match fs::File::open(&path) {
                     Ok(file) => {
-                        use std::ffi::CStr;
-                        let empty_params = CStr::from_bytes_with_nul(b"\0").unwrap();
+                        let empty_params = c"";
                         match rustix::system::finit_module(file.as_fd(), empty_params, 0) {
                             Ok(_) => {
                                 println!("kdf-init: successfully loaded {}", file_name);
                                 loaded_count += 1;
                             }
                             Err(e) => {
-                                println!("kdf-init: failed to load {}: {} (errno: {:?})", file_name, e, e);
+                                println!(
+                                    "kdf-init: failed to load {}: {} (errno: {:?})",
+                                    file_name, e, e
+                                );
                                 failed_count += 1;
                             }
                         }
@@ -122,7 +136,10 @@ pub fn load_kernel_modules(modules_dir: Option<&str>) -> Result<()> {
         }
     }
 
-    println!("kdf-init: module loading complete: {} loaded, {} failed, {} total", loaded_count, failed_count, total_count);
+    println!(
+        "kdf-init: module loading complete: {} loaded, {} failed, {} total",
+        loaded_count, failed_count, total_count
+    );
 
     Ok(())
 }
@@ -134,8 +151,7 @@ pub fn shutdown() -> Result<()> {
     println!("kdf-init: shutting down system");
 
     // Perform system shutdown
-    reboot(RebootCommand::PowerOff)
-        .context("Failed to shutdown system")?;
+    reboot(RebootCommand::PowerOff).context("Failed to shutdown system")?;
 
     Ok(())
 }

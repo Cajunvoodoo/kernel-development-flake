@@ -12,28 +12,39 @@ from kdf_cli.bg_tasks import BackgroundTask, BackgroundTaskManager
 if TYPE_CHECKING:
     from kdf_cli.qemu import QemuCommand
 
-logger = logging.getLogger('kdf.virtiofs')
+logger = logging.getLogger("kdf.virtiofs")
 
 
 class VirtiofsError(Exception):
     """Base exception for virtiofs errors"""
+
     pass
 
 
 class VirtiofsPathError(VirtiofsError):
     """Host path does not exist"""
+
     pass
 
 
 class VirtiofsSocketError(VirtiofsError):
     """Socket creation failed"""
+
     pass
 
 
 class Virtiofsd(BackgroundTask):
     """Manage a single virtiofsd daemon instance"""
 
-    def __init__(self, tag: str, host_path: str, guest_path: str, with_overlay: bool, runtime_dir: Path, device_id: int):
+    def __init__(
+        self,
+        tag: str,
+        host_path: str,
+        guest_path: str,
+        with_overlay: bool,
+        runtime_dir: Path,
+        device_id: int,
+    ):
         """Initialize virtiofsd configuration
 
         Args:
@@ -73,10 +84,14 @@ class Virtiofsd(BackgroundTask):
         # Build command
         cmd = [
             "virtiofsd",
-            "--socket-path", str(self.socket_path),
-            "--shared-dir", str(self.host_path),
-            "--sandbox", "none",
-            "--cache", "always",
+            "--socket-path",
+            str(self.socket_path),
+            "--shared-dir",
+            str(self.host_path),
+            "--sandbox",
+            "none",
+            "--cache",
+            "always",
         ]
 
         logger.info(f"Starting virtiofsd for tag '{self.tag}' sharing {self.host_path}")
@@ -96,14 +111,10 @@ class Virtiofsd(BackgroundTask):
                 logger.info(f"[virtiofsd:{self.tag}] {prefix}: {line.rstrip()}")
 
         self.log_thread_stdout = threading.Thread(
-            target=log_output,
-            args=(self.proc.stdout, "stdout"),
-            daemon=True
+            target=log_output, args=(self.proc.stdout, "stdout"), daemon=True
         )
         self.log_thread_stderr = threading.Thread(
-            target=log_output,
-            args=(self.proc.stderr, "stderr"),
-            daemon=True
+            target=log_output, args=(self.proc.stderr, "stderr"), daemon=True
         )
         self.log_thread_stdout.start()
         self.log_thread_stderr.start()
@@ -125,7 +136,9 @@ class Virtiofsd(BackgroundTask):
             try:
                 self.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                logger.warning(f"virtiofsd for tag '{self.tag}' did not terminate, killing")
+                logger.warning(
+                    f"virtiofsd for tag '{self.tag}' did not terminate, killing"
+                )
                 self.proc.kill()
                 self.proc.wait()
 
@@ -140,25 +153,27 @@ class Virtiofsd(BackgroundTask):
         Args:
             qemu_cmd: QemuCommand instance to configure
         """
-        from qemu import VirtiofsMount
+        from kdf_cli.qemu import VirtiofsMount
 
         # Add virtiofs device to QEMU with virtiofs-specific chardev ID
         chardev_id = f"charvirtiofs{self.device_id}"
         qemu_cmd.add_qemu_args(
-            "-chardev", f"socket,id={chardev_id},path={self.socket_path}",
-            "-device", f"vhost-user-fs-pci,queue-size=1024,chardev={chardev_id},tag={self.tag}",
+            "-chardev",
+            f"socket,id={chardev_id},path={self.socket_path}",
+            "-device",
+            f"vhost-user-fs-pci,queue-size=1024,chardev={chardev_id},tag={self.tag}",
         )
 
         # Add to structured init config
         mount = VirtiofsMount(
-            tag=self.tag,
-            path=self.guest_path,
-            with_overlay=self.with_overlay
+            tag=self.tag, path=self.guest_path, with_overlay=self.with_overlay
         )
         qemu_cmd.init_config.virtiofs_mounts.append(mount)
 
 
-def create_virtiofs_tasks(virtiofs_specs: List[str], task_manager: BackgroundTaskManager):
+def create_virtiofs_tasks(
+    virtiofs_specs: List[str], task_manager: BackgroundTaskManager
+):
     """Create virtiofs daemon tasks from specifications
 
     Args:
@@ -178,7 +193,9 @@ def create_virtiofs_tasks(virtiofs_specs: List[str], task_manager: BackgroundTas
         # Parse share_spec: tag:host_path:guest_path[:overlay]
         parts = share_spec.split(":")
         if len(parts) < 3:
-            raise ValueError(f"Invalid virtiofs spec '{share_spec}': must be tag:host_path:guest_path[:overlay]")
+            raise ValueError(
+                f"Invalid virtiofs spec '{share_spec}': must be tag:host_path:guest_path[:overlay]"
+            )
 
         tag = parts[0]
         host_path = parts[1]

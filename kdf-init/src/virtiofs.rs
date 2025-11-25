@@ -8,8 +8,8 @@ use crate::cmdline::VirtiofsMount;
 
 fn check_virtiofs_support() -> Result<()> {
     // Check if virtiofs is available
-    let filesystems = std::fs::read_to_string("/proc/filesystems")
-        .context("Failed to read /proc/filesystems")?;
+    let filesystems =
+        std::fs::read_to_string("/proc/filesystems").context("Failed to read /proc/filesystems")?;
 
     if filesystems.contains("virtiofs") {
         println!("kdf-init: virtiofs support detected");
@@ -46,13 +46,25 @@ fn mkdir_p(path: &str) -> Result<()> {
     dirs_to_create.reverse();
     for dir in dirs_to_create {
         rustix::fs::mkdir(dir, Mode::from_raw_mode(0o755))
-            .or_else(|e| if e == rustix::io::Errno::EXIST { Ok(()) } else { Err(e) })
+            .or_else(|e| {
+                if e == rustix::io::Errno::EXIST {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            })
             .with_context(|| format!("Failed to create directory {}", dir.display()))?;
     }
 
     // Create the target directory itself
     rustix::fs::mkdir(path, Mode::from_raw_mode(0o755))
-        .or_else(|e| if e == rustix::io::Errno::EXIST { Ok(()) } else { Err(e) })
+        .or_else(|e| {
+            if e == rustix::io::Errno::EXIST {
+                Ok(())
+            } else {
+                Err(e)
+            }
+        })
         .with_context(|| format!("Failed to create directory {}", path))?;
 
     Ok(())
@@ -80,7 +92,13 @@ pub fn mount_virtiofs_shares(mounts: &[VirtiofsMount]) -> Result<()> {
             // Create all overlay directories
             for dir in [&overlay_base, &upper_dir, &work_dir, &lower_dir] {
                 rustix::fs::mkdir(dir, Mode::from_raw_mode(0o755))
-                    .or_else(|e| if e == rustix::io::Errno::EXIST { Ok(()) } else { Err(e) })
+                    .or_else(|e| {
+                        if e == rustix::io::Errno::EXIST {
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    })
                     .with_context(|| format!("Failed to create overlay directory {}", dir))?;
             }
 
@@ -92,9 +110,17 @@ pub fn mount_virtiofs_shares(mounts: &[VirtiofsMount]) -> Result<()> {
                 MountFlags::RDONLY,
                 "",
             )
-            .with_context(|| format!("Failed to mount virtiofs {} at {}", vfs_mount.tag, lower_dir))?;
+            .with_context(|| {
+                format!(
+                    "Failed to mount virtiofs {} at {}",
+                    vfs_mount.tag, lower_dir
+                )
+            })?;
 
-            println!("kdf-init: mounted virtiofs {} (ro) at {}", vfs_mount.tag, lower_dir);
+            println!(
+                "kdf-init: mounted virtiofs {} (ro) at {}",
+                vfs_mount.tag, lower_dir
+            );
 
             // Mount overlayfs with writable upper layer
             let overlay_opts = format!(
@@ -123,9 +149,17 @@ pub fn mount_virtiofs_shares(mounts: &[VirtiofsMount]) -> Result<()> {
                 MountFlags::empty(),
                 "",
             )
-            .with_context(|| format!("Failed to mount virtiofs {} at {}", vfs_mount.tag, vfs_mount.path))?;
+            .with_context(|| {
+                format!(
+                    "Failed to mount virtiofs {} at {}",
+                    vfs_mount.tag, vfs_mount.path
+                )
+            })?;
 
-            println!("kdf-init: mounted virtiofs {} at {}", vfs_mount.tag, vfs_mount.path);
+            println!(
+                "kdf-init: mounted virtiofs {} at {}",
+                vfs_mount.tag, vfs_mount.path
+            );
         }
     }
 

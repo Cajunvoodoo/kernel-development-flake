@@ -7,7 +7,7 @@ from pathlib import Path
 
 from kdf_cli.initramfs import get_prebuilt_init, create_initramfs_archive
 
-logger = logging.getLogger('kdf.nix')
+logger = logging.getLogger("kdf.nix")
 
 # Virtiofs module dependencies (order doesn't matter - dependency resolution happens during initramfs build)
 VIRTIOFS_MODULES = [
@@ -23,12 +23,7 @@ VIRTIOFS_MODULES = [
 
 def get_system_kernel_version() -> str:
     """Get the current system kernel version using uname"""
-    result = subprocess.run(
-        ["uname", "-r"],
-        capture_output=True,
-        text=True,
-        check=True
-    )
+    result = subprocess.run(["uname", "-r"], capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
 
@@ -44,7 +39,7 @@ def nix_build_output(nix_expr: str, output: str | None = None) -> str:
         Nix store path as a string
     """
     if output:
-        full_expr = f'({nix_expr}).{output}'
+        full_expr = f"({nix_expr}).{output}"
     else:
         full_expr = nix_expr
 
@@ -52,7 +47,7 @@ def nix_build_output(nix_expr: str, output: str | None = None) -> str:
         ["nix-build", "--no-out-link", "-E", full_expr],
         capture_output=True,
         text=True,
-        check=True
+        check=True,
     )
     return result.stdout.strip()
 
@@ -67,22 +62,24 @@ def get_kernel_derivations(version: str | None = None) -> tuple[str, str]:
     Returns:
         Tuple of (kernel_drv_path, modules_drv_path)
     """
-    if version is None or version == '':
+    if version is None or version == "":
         # Use default linuxPackages
-        nix_expr = 'with import <nixpkgs> {}; linuxPackages.kernel'
-        logger.info(f"Using default linuxPackages kernel")
+        nix_expr = "with import <nixpkgs> {}; linuxPackages.kernel"
+        logger.info("Using default linuxPackages kernel")
     else:
         # Parse version to get major.minor
-        parts = version.split('.')
+        parts = version.split(".")
         if len(parts) < 2:
-            raise ValueError(f"Invalid kernel version format: {version} (need at least major.minor, e.g., '6.6')")
+            raise ValueError(
+                f"Invalid kernel version format: {version} (need at least major.minor, e.g., '6.6')"
+            )
 
         major = parts[0]
         minor = parts[1]
 
         # Use linuxPackages_{major}_{minor}
         package_name = f"linuxPackages_{major}_{minor}"
-        nix_expr = f'with import <nixpkgs> {{}}; {package_name}.kernel'
+        nix_expr = f"with import <nixpkgs> {{}}; {package_name}.kernel"
         logger.info(f"Using {package_name} from nixpkgs")
 
     try:
@@ -166,8 +163,7 @@ def find_modules(modules_drv: str, module_patterns: list[str]) -> list[Path]:
 
 
 def resolve_kernel_and_initramfs(
-    version: str | None = None,
-    custom_initramfs: Path | None = None
+    version: str | None = None, custom_initramfs: Path | None = None
 ) -> tuple[Path, Path]:
     """
     High-level function to resolve kernel and initramfs from nixpkgs.
@@ -204,8 +200,12 @@ def resolve_kernel_and_initramfs(
     # Find virtiofs modules
     modules = find_modules(modules_drv, VIRTIOFS_MODULES)
 
-    # Create temporary initramfs
-    initramfs_path = Path(tempfile.mktemp(suffix=".cpio", prefix="kdf-initramfs-"))
+    # Create temporary initramfs file
+    import os
+
+    fd, initramfs_tmpfile = tempfile.mkstemp(suffix=".cpio", prefix="kdf-initramfs-")
+    os.close(fd)  # Close the file descriptor, we just need the path
+    initramfs_path = Path(initramfs_tmpfile)
 
     logger.info(f"Building initramfs with {len(modules)} virtiofs modules")
     create_initramfs_archive(init_binary, initramfs_path, modules, "/init-modules")

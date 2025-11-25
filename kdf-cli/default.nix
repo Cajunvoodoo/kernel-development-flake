@@ -17,14 +17,16 @@ let
   };
 
   # Build Python set with overlay
-  pythonSet = (pkgs.callPackage pyproject-nix.build.packages {
-    python = pkgs.python3;
-  }).overrideScope (
-    lib.composeManyExtensions [
-      pyproject-build-systems.overlays.default
-      overlay
-    ]
-  );
+  pythonSet =
+    (pkgs.callPackage pyproject-nix.build.packages {
+      python = pkgs.python3;
+    }).overrideScope
+      (
+        lib.composeManyExtensions [
+          pyproject-build-systems.overlays.default
+          overlay
+        ]
+      );
 
   # Get mkApplication utility
   inherit (pkgs.callPackage pyproject-nix.build.util { }) mkApplication;
@@ -39,25 +41,28 @@ let
   };
 
   # Stage 1: Unwrapped kdf-cli with just PATH dependencies for building initramfs
-  unwrapped = pkgs.runCommand "kdf-cli-unwrapped"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-    }
-    ''
-      mkdir -p $out/bin
-      cp -r ${app}/* $out/
+  unwrapped =
+    pkgs.runCommand "kdf-cli-unwrapped"
+      {
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+      }
+      ''
+        mkdir -p $out/bin
+        cp -r ${app}/* $out/
 
-      # Wrap with minimal dependencies needed for initramfs build
-      wrapProgram $out/bin/kdf \
-        --prefix PATH : ${lib.makeBinPath [
-          pkgs.coreutils
-          pkgs.xz
-          pkgs.gzip
-          pkgs.cpio
-          pkgs.findutils
-          pkgs.kmod
-        ]}
-    '';
+        # Wrap with minimal dependencies needed for initramfs build
+        wrapProgram $out/bin/kdf \
+          --prefix PATH : ${
+            lib.makeBinPath [
+              pkgs.coreutils
+              pkgs.xz
+              pkgs.gzip
+              pkgs.cpio
+              pkgs.findutils
+              pkgs.kmod
+            ]
+          }
+      '';
 in
 # Stage 2: Build prebuilt initramfs and wrap with full runtime dependencies
 pkgs.runCommand "kdf-cli"
@@ -85,15 +90,17 @@ pkgs.runCommand "kdf-cli"
 
     # Wrap the binary with full runtime dependencies and resource path
     wrapProgram $out/bin/kdf \
-      --prefix PATH : ${lib.makeBinPath [
-        pkgs.qemu
-        pkgs.virtiofsd
-        pkgs.coreutils
-        pkgs.xz
-        pkgs.gzip
-        pkgs.cpio
-        pkgs.findutils
-        pkgs.kmod
-      ]} \
+      --prefix PATH : ${
+        lib.makeBinPath [
+          pkgs.qemu
+          pkgs.virtiofsd
+          pkgs.coreutils
+          pkgs.xz
+          pkgs.gzip
+          pkgs.cpio
+          pkgs.findutils
+          pkgs.kmod
+        ]
+      } \
       --set KDF_RESOURCE_DIR $out/share/kdf
   ''

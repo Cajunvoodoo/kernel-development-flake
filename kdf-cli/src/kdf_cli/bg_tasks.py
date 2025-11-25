@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from qemu import QemuCommand
+    from kdf_cli.qemu import QemuCommand
 
 
 class BackgroundTask(ABC):

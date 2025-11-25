@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-logger = logging.getLogger('kdf.initramfs')
+logger = logging.getLogger("kdf.initramfs")
 
 
 def get_resource_dir() -> Path | None:
@@ -49,11 +49,11 @@ def get_module_dependencies(module_path: Path) -> list[str]:
             ["modinfo", "-F", "depends", str(module_path)],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         deps = result.stdout.strip()
         if deps:
-            return [d.strip() for d in deps.split(',') if d.strip()]
+            return [d.strip() for d in deps.split(",") if d.strip()]
         return []
     except subprocess.CalledProcessError:
         return []
@@ -68,12 +68,12 @@ def topological_sort_modules(modules: list[Path]) -> list[Path]:
     for module_path in modules:
         name = module_path.name
         # Remove compression extensions
-        if name.endswith('.xz'):
+        if name.endswith(".xz"):
             name = name[:-3]
-        if name.endswith('.gz'):
+        if name.endswith(".gz"):
             name = name[:-3]
         # Remove .ko extension
-        if name.endswith('.ko'):
+        if name.endswith(".ko"):
             name = name[:-3]
 
         module_map[name] = module_path
@@ -103,7 +103,9 @@ def topological_sort_modules(modules: list[Path]) -> list[Path]:
     return sorted_modules
 
 
-def create_initramfs_archive(init_binary: Path, output_path: Path, modules: list[Path], moddir: str) -> None:
+def create_initramfs_archive(
+    init_binary: Path, output_path: Path, modules: list[Path], moddir: str
+) -> None:
     """Create initramfs cpio archive from init binary and optional kernel modules"""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
@@ -134,19 +136,27 @@ def create_initramfs_archive(init_binary: Path, output_path: Path, modules: list
                 module_name = module_path.name
                 prefix = f"{idx:02d}-"  # Two-digit prefix: 00-, 01-, etc.
 
-                if module_name.endswith('.xz'):
+                if module_name.endswith(".xz"):
                     # Decompress .xz module
                     decompressed_name = module_name[:-3]  # Remove .xz extension
                     final_name = prefix + decompressed_name
                     module_dest = modules_dir / final_name
-                    subprocess.run(["xz", "-dc", str(module_path)], stdout=open(module_dest, "wb"), check=True)
+                    subprocess.run(
+                        ["xz", "-dc", str(module_path)],
+                        stdout=open(module_dest, "wb"),
+                        check=True,
+                    )
                     logger.info(f"Added module: {module_name} -> {final_name}")
-                elif module_name.endswith('.gz'):
+                elif module_name.endswith(".gz"):
                     # Decompress .gz module
                     decompressed_name = module_name[:-3]  # Remove .gz extension
                     final_name = prefix + decompressed_name
                     module_dest = modules_dir / final_name
-                    subprocess.run(["gzip", "-dc", str(module_path)], stdout=open(module_dest, "wb"), check=True)
+                    subprocess.run(
+                        ["gzip", "-dc", str(module_path)],
+                        stdout=open(module_dest, "wb"),
+                        check=True,
+                    )
                     logger.info(f"Added module: {module_name} -> {final_name}")
                 else:
                     # Copy as-is

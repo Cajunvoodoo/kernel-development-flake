@@ -149,7 +149,12 @@
       };
 
       kdf-cli = pkgs.callPackage ./kdf-cli {
-        inherit uv2nix pyproject-nix pyproject-build-systems kdf-init;
+        inherit
+          uv2nix
+          pyproject-nix
+          pyproject-build-systems
+          kdf-init
+          ;
       };
 
       devShell =
@@ -159,6 +164,7 @@
             pkgs.fenix.stable.rustc
             pkgs.fenix.stable.cargo
             pkgs.fenix.stable.rustfmt
+            pkgs.fenix.stable.clippy
             pkgs.fenix.targets.x86_64-unknown-linux-musl.stable.rust-std
           ];
 
@@ -172,11 +178,16 @@
               gdb
               qemu
               pahole
+              just
 
               # static analysis
               flawfinder
               cppcheck
               sparse
+
+              # Python tools
+              ruff
+              ty
             ]
             ++ lib.optionals enableRust [
               rustToolchain
@@ -216,6 +227,6 @@
 
       devShells.${system}.default = devShell;
 
-      formatter.${system} = pkgs.nixfmt;
+      formatter.${system} = pkgs.nixfmt-tree;
     };
 }
