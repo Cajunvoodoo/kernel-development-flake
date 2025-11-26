@@ -16,6 +16,11 @@ let
     sourcePreference = "wheel";
   };
 
+  # Create editable overlay for development
+  editableOverlay = workspace.mkEditablePyprojectOverlay {
+    root = "$KDF_CLI_ROOT";
+  };
+
   # Build Python set with overlay
   pythonSet =
     (pkgs.callPackage pyproject-nix.build.packages {
@@ -65,7 +70,7 @@ let
       '';
 in
 # Stage 2: Build prebuilt initramfs and wrap with full runtime dependencies
-pkgs.runCommand "kdf-cli"
+(pkgs.runCommand "kdf-cli"
   {
     nativeBuildInputs = [ pkgs.makeWrapper ];
     meta = app.meta // {
@@ -104,3 +109,8 @@ pkgs.runCommand "kdf-cli"
       } \
       --set KDF_RESOURCE_DIR $out/share/kdf
   ''
+)
+// {
+  # Expose components for development shell
+  inherit workspace editableOverlay pythonSet;
+}

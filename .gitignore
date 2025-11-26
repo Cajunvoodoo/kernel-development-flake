@@ -21,3 +21,8 @@ result-dev
 target/
 *.cpio
 kdf.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class

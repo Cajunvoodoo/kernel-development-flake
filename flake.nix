@@ -168,6 +168,12 @@
             pkgs.fenix.targets.x86_64-unknown-linux-musl.stable.rust-std
           ];
 
+          # Create Python set with editable overlay for kdf-cli development
+          editablePythonSet = kdf-cli.pythonSet.overrideScope kdf-cli.editableOverlay;
+
+          # Create virtualenv with all dependencies (including dev dependencies)
+          kdf-cli-virtualenv = editablePythonSet.mkVirtualEnv "kdf-cli-dev-env" kdf-cli.workspace.deps.all;
+
           nativeBuildInputs =
             with pkgs;
             [
@@ -179,6 +185,7 @@
               qemu
               pahole
               just
+              uv
 
               # static analysis
               flawfinder
@@ -188,6 +195,9 @@
               # Python tools
               ruff
               ty
+
+              # kdf-cli editable virtualenv
+              kdf-cli-virtualenv
             ]
             ++ lib.optionals enableRust [
               rustToolchain
@@ -203,6 +213,16 @@
           # KERNEL = kernel.dev;
           # KERNEL_VERSION = kernel.modDirVersion;
           # RUST_LIB_SRC = pkgs.rustPlatform.rustLibSrc;
+
+          # UV environment variables for kdf-cli development
+          UV_NO_SYNC = "1";
+          UV_PYTHON = editablePythonSet.python.interpreter;
+          UV_PYTHON_DOWNLOADS = "never";
+
+          shellHook = ''
+            unset PYTHONPATH
+            export KDF_CLI_ROOT=$(git rev-parse --show-toplevel)/kdf-cli
+          '';
         };
     in
     {
