@@ -1,3 +1,14 @@
+# Setup development environment (install git hooks)
+setup:
+    #!/usr/bin/env bash
+    echo '#!/bin/sh' > .git/hooks/pre-commit
+    echo 'just check' >> .git/hooks/pre-commit
+    chmod +x .git/hooks/pre-commit
+    echo "Git pre-commit hook installed successfully"
+
+# Run all tests
+test: test-rust
+
 # Check all code quality tools
 [parallel]
 check: check-rust check-python check-nix
@@ -34,6 +45,10 @@ check-lint-rust:
 # Fix clippy warnings
 fix-lint-rust:
     cd kdf-init && cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged
+
+# Run Rust tests
+test-rust:
+    cd kdf-init && cargo test --all-features
 
 # Check Python code in kdf-cli
 [parallel]

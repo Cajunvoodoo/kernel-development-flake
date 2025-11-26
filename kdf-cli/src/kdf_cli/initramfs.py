@@ -1,4 +1,4 @@
-"""Initramfs building utilities"""
+"""Initramfs building utilities."""
 
 import logging
 import os
@@ -10,7 +10,7 @@ logger = logging.getLogger("kdf.initramfs")
 
 
 def get_resource_dir() -> Path | None:
-    """Get resource directory if running from Nix package, None otherwise"""
+    """Get resource directory if running from Nix package, None otherwise."""
     resource_dir = os.environ.get("KDF_RESOURCE_DIR")
     if resource_dir:
         return Path(resource_dir)
@@ -18,7 +18,7 @@ def get_resource_dir() -> Path | None:
 
 
 def get_prebuilt_initramfs() -> Path | None:
-    """Get path to prebuilt initramfs if available"""
+    """Get path to prebuilt initramfs if available."""
     resource_dir = get_resource_dir()
     if resource_dir:
         initramfs_path = resource_dir / "initramfs.cpio"
@@ -28,7 +28,7 @@ def get_prebuilt_initramfs() -> Path | None:
 
 
 def get_prebuilt_init() -> Path | None:
-    """Get path to prebuilt kdf-init binary if available"""
+    """Get path to prebuilt kdf-init binary if available."""
     resource_dir = get_resource_dir()
     if resource_dir:
         init_path = resource_dir / "init"
@@ -38,12 +38,12 @@ def get_prebuilt_init() -> Path | None:
 
 
 def copy_file(src: Path, dst: Path) -> None:
-    """Copy file from src to dst"""
+    """Copy file from src to dst."""
     subprocess.run(["cp", str(src), str(dst)], check=True)
 
 
 def get_module_dependencies(module_path: Path) -> list[str]:
-    """Get module dependencies using modinfo"""
+    """Get module dependencies using modinfo."""
     try:
         result = subprocess.run(
             ["modinfo", "-F", "depends", str(module_path)],
@@ -60,7 +60,7 @@ def get_module_dependencies(module_path: Path) -> list[str]:
 
 
 def topological_sort_modules(modules: list[Path]) -> list[Path]:
-    """Sort modules in dependency order using topological sort"""
+    """Sort modules in dependency order using topological sort."""
     # Build dependency graph
     module_map = {}  # name (without .ko.xz) -> Path
     dependencies = {}  # name -> list of dependency names
@@ -68,13 +68,10 @@ def topological_sort_modules(modules: list[Path]) -> list[Path]:
     for module_path in modules:
         name = module_path.name
         # Remove compression extensions
-        if name.endswith(".xz"):
-            name = name[:-3]
-        if name.endswith(".gz"):
-            name = name[:-3]
+        name = name.removesuffix(".xz")
+        name = name.removesuffix(".gz")
         # Remove .ko extension
-        if name.endswith(".ko"):
-            name = name[:-3]
+        name = name.removesuffix(".ko")
 
         module_map[name] = module_path
         dependencies[name] = get_module_dependencies(module_path)
@@ -83,7 +80,7 @@ def topological_sort_modules(modules: list[Path]) -> list[Path]:
     sorted_modules = []
     visited = set()
 
-    def visit(name: str):
+    def visit(name: str) -> None:
         if name in visited:
             return
         visited.add(name)
@@ -104,9 +101,12 @@ def topological_sort_modules(modules: list[Path]) -> list[Path]:
 
 
 def create_initramfs_archive(
-    init_binary: Path, output_path: Path, modules: list[Path], moddir: str
+    init_binary: Path,
+    output_path: Path,
+    modules: list[Path],
+    moddir: str,
 ) -> None:
-    """Create initramfs cpio archive from init binary and optional kernel modules"""
+    """Create initramfs cpio archive from init binary and optional kernel modules."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmppath = Path(tmpdir)
 
@@ -121,7 +121,7 @@ def create_initramfs_archive(
             sorted_modules = topological_sort_modules(modules)
             logger.info("Module load order after dependency resolution:")
             for idx, mod in enumerate(sorted_modules, 1):
-                logger.info(f"  {idx}. {mod.name}")
+                logger.info("  %s. %s", idx, mod.name)
 
             # Strip leading slash for creating directory in tmpdir
             moddir_relative = moddir.lstrip("/")
@@ -130,7 +130,8 @@ def create_initramfs_archive(
 
             for idx, module_path in enumerate(sorted_modules):
                 if not module_path.exists():
-                    raise FileNotFoundError(f"Kernel module not found: {module_path}")
+                    msg = f"Kernel module not found: {module_path}"
+                    raise FileNotFoundError(msg)
 
                 # Decompress if needed and add numeric prefix for load order
                 module_name = module_path.name
@@ -141,32 +142,34 @@ def create_initramfs_archive(
                     decompressed_name = module_name[:-3]  # Remove .xz extension
                     final_name = prefix + decompressed_name
                     module_dest = modules_dir / final_name
-                    subprocess.run(
-                        ["xz", "-dc", str(module_path)],
-                        stdout=open(module_dest, "wb"),
-                        check=True,
-                    )
-                    logger.info(f"Added module: {module_name} -> {final_name}")
+                    with module_dest.open("wb") as dest_file:
+                        subprocess.run(
+                            ["xz", "-dc", str(module_path)],
+                            stdout=dest_file,
+                            check=True,
+                        )
+                    logger.info("Added module: %s -> %s", module_name, final_name)
                 elif module_name.endswith(".gz"):
                     # Decompress .gz module
                     decompressed_name = module_name[:-3]  # Remove .gz extension
                     final_name = prefix + decompressed_name
                     module_dest = modules_dir / final_name
-                    subprocess.run(
-                        ["gzip", "-dc", str(module_path)],
-                        stdout=open(module_dest, "wb"),
-                        check=True,
-                    )
-                    logger.info(f"Added module: {module_name} -> {final_name}")
+                    with module_dest.open("wb") as dest_file:
+                        subprocess.run(
+                            ["gzip", "-dc", str(module_path)],
+                            stdout=dest_file,
+                            check=True,
+                        )
+                    logger.info("Added module: %s -> %s", module_name, final_name)
                 else:
                     # Copy as-is
                     final_name = prefix + module_name
                     module_dest = modules_dir / final_name
                     copy_file(module_path, module_dest)
-                    logger.info(f"Added module: {module_name} -> {final_name}")
+                    logger.info("Added module: %s -> %s", module_name, final_name)
 
         # Create cpio archive
-        with open(output_path, "wb") as f:
+        with output_path.open("wb") as f:
             subprocess.run(
                 "find . -print0 | cpio --null -o -H newc",
                 cwd=tmpdir,

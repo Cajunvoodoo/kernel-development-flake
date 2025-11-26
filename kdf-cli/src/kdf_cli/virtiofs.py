@@ -1,11 +1,11 @@
-"""Virtiofs daemon management for kdf"""
+"""Virtiofs daemon management for kdf."""
 
 import logging
 import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import List, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 
 from kdf_cli.bg_tasks import BackgroundTask, BackgroundTaskManager
 
@@ -16,25 +16,19 @@ logger = logging.getLogger("kdf.virtiofs")
 
 
 class VirtiofsError(Exception):
-    """Base exception for virtiofs errors"""
-
-    pass
+    """Base exception for virtiofs errors."""
 
 
 class VirtiofsPathError(VirtiofsError):
-    """Host path does not exist"""
-
-    pass
+    """Host path does not exist."""
 
 
 class VirtiofsSocketError(VirtiofsError):
-    """Socket creation failed"""
-
-    pass
+    """Socket creation failed."""
 
 
 class Virtiofsd(BackgroundTask):
-    """Manage a single virtiofsd daemon instance"""
+    """Manage a single virtiofsd daemon instance."""
 
     def __init__(
         self,
@@ -44,8 +38,8 @@ class Virtiofsd(BackgroundTask):
         with_overlay: bool,
         runtime_dir: Path,
         device_id: int,
-    ):
-        """Initialize virtiofsd configuration
+    ) -> None:
+        """Initialize virtiofsd configuration.
 
         Args:
             tag: Virtiofs tag name
@@ -54,6 +48,7 @@ class Virtiofsd(BackgroundTask):
             with_overlay: Whether to use overlayfs
             runtime_dir: Directory for runtime files (sockets)
             device_id: Unique device ID for QEMU chardev
+
         """
         self.tag = tag
         self.host_path = Path(host_path)
@@ -64,21 +59,26 @@ class Virtiofsd(BackgroundTask):
         self.proc = None
         self.log_thread = None
 
-    def start(self):
-        """Start the virtiofsd daemon
+    def start(self) -> None:
+        """Start the virtiofsd daemon.
 
         Raises:
             VirtiofsPathError: If host path does not exist
             VirtiofsSocketError: If socket already exists or creation fails
+
         """
         if not self.host_path.exists():
-            raise VirtiofsPathError(f"Host path does not exist: {self.host_path}")
+            msg = f"Host path does not exist: {self.host_path}"
+            raise VirtiofsPathError(msg)
 
         # Check for existing socket - fail if present (indicates running daemon)
         if self.socket_path.exists():
-            raise VirtiofsSocketError(
+            msg = (
                 f"Socket already exists for tag '{self.tag}': {self.socket_path}. "
                 "Another virtiofsd may be running or socket was not cleaned up."
+            )
+            raise VirtiofsSocketError(
+                msg,
             )
 
         # Build command
@@ -94,8 +94,10 @@ class Virtiofsd(BackgroundTask):
             "always",
         ]
 
-        logger.info(f"Starting virtiofsd for tag '{self.tag}' sharing {self.host_path}")
-        logger.info(f"Command: {' '.join(cmd)}")
+        logger.info(
+            "Starting virtiofsd for tag '%s' sharing %s", self.tag, self.host_path
+        )
+        logger.info("Command: %s", " ".join(cmd))
 
         self.proc = subprocess.Popen(
             cmd,
@@ -106,15 +108,19 @@ class Virtiofsd(BackgroundTask):
         )
 
         # Start thread to read and log virtiofsd output
-        def log_output(pipe, prefix):
+        def log_output(pipe: IO[str], prefix: str) -> None:
             for line in pipe:
-                logger.info(f"[virtiofsd:{self.tag}] {prefix}: {line.rstrip()}")
+                logger.info("[virtiofsd:%s] %s: %s", self.tag, prefix, line.rstrip())
 
         self.log_thread_stdout = threading.Thread(
-            target=log_output, args=(self.proc.stdout, "stdout"), daemon=True
+            target=log_output,
+            args=(self.proc.stdout, "stdout"),
+            daemon=True,
         )
         self.log_thread_stderr = threading.Thread(
-            target=log_output, args=(self.proc.stderr, "stderr"), daemon=True
+            target=log_output,
+            args=(self.proc.stderr, "stderr"),
+            daemon=True,
         )
         self.log_thread_stdout.start()
         self.log_thread_stderr.start()
@@ -126,18 +132,20 @@ class Virtiofsd(BackgroundTask):
             time.sleep(0.1)
         else:
             self.stop()
-            raise VirtiofsSocketError(f"Failed to create socket: {self.socket_path}")
+            msg = f"Failed to create socket: {self.socket_path}"
+            raise VirtiofsSocketError(msg)
 
-    def stop(self):
-        """Stop the virtiofsd daemon"""
+    def stop(self) -> None:
+        """Stop the virtiofsd daemon."""
         if self.proc and self.proc.poll() is None:
-            logger.info(f"Stopping virtiofsd for tag '{self.tag}'")
+            logger.info("Stopping virtiofsd for tag '%s'", self.tag)
             self.proc.terminate()
             try:
                 self.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 logger.warning(
-                    f"virtiofsd for tag '{self.tag}' did not terminate, killing"
+                    "virtiofsd for tag '%s' did not terminate, killing",
+                    self.tag,
                 )
                 self.proc.kill()
                 self.proc.wait()
@@ -145,13 +153,14 @@ class Virtiofsd(BackgroundTask):
         # Cleanup socket file
         if self.socket_path.exists():
             self.socket_path.unlink()
-            logger.info(f"Cleaned up socket: {self.socket_path}")
+            logger.info("Cleaned up socket: %s", self.socket_path)
 
-    def register_with_qemu(self, qemu_cmd: "QemuCommand"):
-        """Register virtiofs device and kernel parameters with QEMU
+    def register_with_qemu(self, qemu_cmd: "QemuCommand") -> None:
+        """Register virtiofs device and kernel parameters with QEMU.
 
         Args:
             qemu_cmd: QemuCommand instance to configure
+
         """
         from kdf_cli.qemu import VirtiofsMount
 
@@ -166,22 +175,27 @@ class Virtiofsd(BackgroundTask):
 
         # Add to structured init config
         mount = VirtiofsMount(
-            tag=self.tag, path=self.guest_path, with_overlay=self.with_overlay
+            tag=self.tag,
+            path=self.guest_path,
+            with_overlay=self.with_overlay,
         )
         qemu_cmd.init_config.virtiofs_mounts.append(mount)
 
 
 def create_virtiofs_tasks(
-    virtiofs_specs: List[str], task_manager: BackgroundTaskManager
-):
-    """Create virtiofs daemon tasks from specifications
+    virtiofs_specs: list[str],
+    task_manager: BackgroundTaskManager,
+) -> None:
+    """Create virtiofs daemon tasks from specifications.
 
     Args:
-        virtiofs_specs: List of virtiofs specs in format tag:host_path:guest_path[:overlay]
+        virtiofs_specs: List of virtiofs specs in format
+            tag:host_path:guest_path[:overlay]
         task_manager: BackgroundTaskManager to register tasks with
 
     Raises:
         ValueError: If virtiofs spec format is invalid
+
     """
     if not virtiofs_specs:
         return
@@ -193,8 +207,12 @@ def create_virtiofs_tasks(
         # Parse share_spec: tag:host_path:guest_path[:overlay]
         parts = share_spec.split(":")
         if len(parts) < 3:
+            msg = (
+                f"Invalid virtiofs spec '{share_spec}': "
+                "must be tag:host_path:guest_path[:overlay]"
+            )
             raise ValueError(
-                f"Invalid virtiofs spec '{share_spec}': must be tag:host_path:guest_path[:overlay]"
+                msg,
             )
 
         tag = parts[0]

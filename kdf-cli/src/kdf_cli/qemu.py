@@ -1,13 +1,12 @@
-"""QEMU command building and management for kdf"""
+"""QEMU command building and management for kdf."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict
 
 
 @dataclass
 class VirtiofsMount:
-    """Virtiofs mount specification (matches kdf-init)"""
+    """Virtiofs mount specification (matches kdf-init)."""
 
     tag: str
     path: str
@@ -16,7 +15,7 @@ class VirtiofsMount:
 
 @dataclass
 class Symlink:
-    """Symlink specification (matches kdf-init)"""
+    """Symlink specification (matches kdf-init)."""
 
     source: str
     target: str
@@ -24,19 +23,20 @@ class Symlink:
 
 @dataclass
 class InitConfig:
-    """Configuration for kdf-init (matches kdf-init/src/cmdline.rs)"""
+    """Configuration for kdf-init (matches kdf-init/src/cmdline.rs)."""
 
-    virtiofs_mounts: List[VirtiofsMount] = field(default_factory=list)
-    symlinks: List[Symlink] = field(default_factory=list)
-    env_vars: Dict[str, str] = field(default_factory=dict)
-    command: Optional[str] = None
-    moddir: Optional[str] = None
+    virtiofs_mounts: list[VirtiofsMount] = field(default_factory=list)
+    symlinks: list[Symlink] = field(default_factory=list)
+    env_vars: dict[str, str] = field(default_factory=dict)
+    command: str | None = None
+    moddir: str | None = None
 
-    def to_cmdline(self) -> List[str]:
-        """Convert init configuration to kernel cmdline parameters
+    def to_cmdline(self) -> list[str]:
+        """Convert init configuration to kernel cmdline parameters.
 
         Returns:
             List of init.XXX kernel parameters
+
         """
         params = []
 
@@ -71,7 +71,7 @@ class InitConfig:
 
 
 class QemuCommand:
-    """Builder for QEMU command arguments"""
+    """Builder for QEMU command arguments."""
 
     def __init__(
         self,
@@ -79,14 +79,16 @@ class QemuCommand:
         initramfs: Path,
         memory: str = "512M",
         enable_dax: bool = False,
-    ):
-        """Initialize QEMU command builder
+    ) -> None:
+        """Initialize QEMU command builder.
 
         Args:
             kernel: Path to kernel image
             initramfs: Path to initramfs cpio
             memory: QEMU memory (default: 512M)
-            enable_dax: Enable DAX (Direct Access) for virtiofs by backing all RAM with shared memory
+            enable_dax: Enable DAX (Direct Access) for virtiofs
+                by backing all RAM with shared memory
+
         """
         self.kernel = kernel
         self.initramfs = initramfs
@@ -96,27 +98,30 @@ class QemuCommand:
         self.cmdline_parts = ["console=ttyS0"]
         self.init_config = InitConfig()
 
-    def add_qemu_args(self, *args: str):
-        """Add QEMU command-line arguments
+    def add_qemu_args(self, *args: str) -> None:
+        """Add QEMU command-line arguments.
 
         Args:
             *args: Variable number of QEMU arguments
+
         """
         self.qemu_args.extend(args)
 
-    def add_cmdline(self, param: str):
-        """Add kernel command-line parameter
+    def add_cmdline(self, param: str) -> None:
+        """Add kernel command-line parameter.
 
         Args:
             param: Kernel cmdline parameter
+
         """
         self.cmdline_parts.append(param)
 
-    def build(self) -> List[str]:
-        """Build final QEMU command
+    def build(self) -> list[str]:
+        """Build final QEMU command.
 
         Returns:
             List of QEMU command arguments
+
         """
         cmd = [
             "qemu-system-x86_64",
@@ -141,7 +146,7 @@ class QemuCommand:
                     f"memory-backend-memfd,id=mem,size={self.memory},share=on",
                     "-numa",
                     "node,memdev=mem",
-                ]
+                ],
             )
         else:
             cmd.extend(["-m", self.memory])

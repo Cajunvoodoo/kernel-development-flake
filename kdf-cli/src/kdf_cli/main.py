@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kdf: Kernel development flake - Manage kdf-init initramfs and kernel execution"""
+"""kdf: Kernel development flake - Manage kdf-init initramfs and kernel execution."""
 
 import argparse
 import logging
@@ -8,15 +8,15 @@ import sys
 from pathlib import Path
 
 from kdf_cli.bg_tasks import BackgroundTaskManager
-from kdf_cli.qemu import QemuCommand
-from kdf_cli.virtiofs import VirtiofsError, create_virtiofs_tasks
-from kdf_cli.nix import resolve_kernel_and_initramfs
 from kdf_cli.initramfs import (
-    get_prebuilt_initramfs,
-    get_prebuilt_init,
     copy_file,
     create_initramfs_archive,
+    get_prebuilt_init,
+    get_prebuilt_initramfs,
 )
+from kdf_cli.nix import resolve_kernel_and_initramfs
+from kdf_cli.qemu import QemuCommand
+from kdf_cli.virtiofs import VirtiofsError, create_virtiofs_tasks
 
 # Set up logging
 logging.basicConfig(
@@ -27,8 +27,8 @@ logging.basicConfig(
 logger = logging.getLogger("kdf")
 
 
-def cmd_build_initramfs(args):
-    """Build initramfs cpio archive from init binary"""
+def cmd_build_initramfs(args: argparse.Namespace) -> None:
+    """Build initramfs cpio archive from init binary."""
     try:
         # Parse module paths if provided
         modules = []
@@ -40,11 +40,12 @@ def cmd_build_initramfs(args):
         # Determine output path
         output_path = args.output if args.output else Path("./initramfs.cpio")
 
-        # Special case: No modules and no custom init - just copy prebuilt initramfs if available
+        # Special case: No modules and no custom init
+        # Just copy prebuilt initramfs if available
         if not modules and args.init_binary is None:
             prebuilt_initramfs = get_prebuilt_initramfs()
             if prebuilt_initramfs is not None:
-                logger.info(f"Copying prebuilt initramfs to: {output_path}")
+                logger.info("Copying prebuilt initramfs to: %s", output_path)
                 copy_file(prebuilt_initramfs, output_path)
                 return
 
@@ -53,27 +54,31 @@ def cmd_build_initramfs(args):
             # Try to use prebuilt init
             prebuilt_init = get_prebuilt_init()
             if prebuilt_init is None:
-                raise FileNotFoundError(
+                msg = (
                     "No init binary specified and no prebuilt init available. "
                     "Please provide an init binary as the first argument."
                 )
-            logger.info(f"Using prebuilt init binary: {prebuilt_init}")
+                raise FileNotFoundError(
+                    msg,
+                )
+            logger.info("Using prebuilt init binary: %s", prebuilt_init)
             init_binary = prebuilt_init
         else:
             if not args.init_binary.exists():
-                raise FileNotFoundError(f"Init binary not found: {args.init_binary}")
+                msg = f"Init binary not found: {args.init_binary}"
+                raise FileNotFoundError(msg)
             init_binary = args.init_binary
 
         # Build initramfs directly to output
         create_initramfs_archive(init_binary, output_path, modules, args.moddir)
-        logger.info(f"Created initramfs: {output_path}")
+        logger.info("Created initramfs: %s", output_path)
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.exception("Error: %s", e)
         sys.exit(1)
 
 
-def cmd_run(args):
-    """Run QEMU with kernel and initramfs"""
+def cmd_run(args: argparse.Namespace) -> None:
+    """Run QEMU with kernel and initramfs."""
     # Handle --release flag to resolve kernel from nixpkgs
     if args.release is not None:
         try:
@@ -81,16 +86,16 @@ def cmd_run(args):
                 version=args.release if args.release else None,
                 custom_initramfs=args.initramfs,
             )
-            logger.info(f"Resolved kernel: {kernel}")
-            logger.info(f"Resolved initramfs: {initramfs}")
+            logger.info("Resolved kernel: %s", kernel)
+            logger.info("Resolved initramfs: %s", initramfs)
         except Exception as e:
-            logger.error(f"Failed to resolve kernel from nixpkgs: {e}")
+            logger.exception("Failed to resolve kernel from nixpkgs: %s", e)
             sys.exit(1)
     else:
         # Use provided kernel
         kernel = args.kernel
         if not kernel.exists():
-            logger.error(f"Kernel not found: {kernel}")
+            logger.error("Kernel not found: %s", kernel)
             sys.exit(1)
 
         # Determine which initramfs to use
@@ -103,15 +108,16 @@ def cmd_run(args):
             if prebuilt_initramfs is None:
                 logger.error(
                     "No initramfs specified and no prebuilt initramfs available. "
-                    "Please provide --initramfs or build kdf-cli from the Nix package."
+                    "Please provide --initramfs or build kdf-cli from the Nix package.",
                 )
                 sys.exit(1)
-            # TODO: ty doesn't understand that sys.exit(1) never returns, so it can't narrow the type
+            # TODO: ty doesn't understand sys.exit(1) never returns
+            # so it can't narrow the type
             initramfs = prebuilt_initramfs  # type: ignore[invalid-assignment]
-            logger.info(f"Using prebuilt initramfs: {initramfs}")
+            logger.info("Using prebuilt initramfs: %s", initramfs)
 
         if not initramfs.exists():
-            logger.error(f"Initramfs not found: {initramfs}")
+            logger.error("Initramfs not found: %s", initramfs)
             sys.exit(1)
 
     # Create background task manager
@@ -144,17 +150,19 @@ def cmd_run(args):
         cmd = qemu_cmd.build()
         logger.info("Running QEMU with command:")
         logger.info(" ".join(cmd))
-        subprocess.run(cmd)
+        subprocess.run(cmd, check=False)
     except (ValueError, VirtiofsError) as e:
-        logger.error(f"Error: {e}")
+        logger.exception("Error: %s", e)
         sys.exit(1)
     finally:
         task_manager.cleanup()
 
 
-def main():
+def main() -> None:
+    """Run the kdf CLI."""
     parser = argparse.ArgumentParser(
-        prog="kdf", description="kdf: Kernel development flake tools"
+        prog="kdf",
+        description="kdf: Kernel development flake tools",
     )
     subparsers = parser.add_subparsers(dest="command", help="Subcommands")
 
@@ -163,7 +171,8 @@ def main():
     build_subparsers = build_parser.add_subparsers(dest="build_command")
 
     initramfs_parser = build_subparsers.add_parser(
-        "initramfs", help="Build initramfs cpio archive"
+        "initramfs",
+        help="Build initramfs cpio archive",
     )
     initramfs_parser.add_argument(
         "init_binary",
@@ -173,7 +182,10 @@ def main():
         help="Path to init binary (default: use prebuilt kdf-init if available)",
     )
     initramfs_parser.add_argument(
-        "--output", "-o", type=Path, help="Output cpio file (default: ./initramfs.cpio)"
+        "--output",
+        "-o",
+        type=Path,
+        help="Output cpio file (default: ./initramfs.cpio)",
     )
     initramfs_parser.add_argument(
         "--module",
@@ -198,7 +210,10 @@ def main():
         nargs="?",
         const="",
         metavar="VERSION",
-        help="Use nixpkgs kernel release (optionally specify version, defaults to system kernel)",
+        help=(
+            "Use nixpkgs kernel release "
+            "(optionally specify version, defaults to system kernel)"
+        ),
     )
     run_parser.add_argument(
         "--initramfs",
@@ -213,10 +228,15 @@ def main():
         help="Virtiofs share: tag:host_path:guest_path[:overlay]",
     )
     run_parser.add_argument(
-        "--cmdline", default="", help="Additional kernel cmdline arguments"
+        "--cmdline",
+        default="",
+        help="Additional kernel cmdline arguments",
     )
     run_parser.add_argument(
-        "--memory", "-m", default="512M", help="QEMU memory (default: 512M)"
+        "--memory",
+        "-m",
+        default="512M",
+        help="QEMU memory (default: 512M)",
     )
     run_parser.add_argument(
         "--virtiofs-dax",

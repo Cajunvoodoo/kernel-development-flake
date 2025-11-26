@@ -21,3 +21,48 @@ kdf = "kdf_cli.main:main"
 [build-system]
 requires = ["uv_build>=0.9.11,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # Conflicting formatter rules
+    "COM812",   # Trailing comma missing - conflicts with formatter
+    "ISC001",   # Implicit string concatenation - conflicts with formatter
+
+    # Docstring style rules - we use D211 (no blank line before class) and D212 (summary on first line)
+    "D203",     # one-blank-line-before-class (conflicts with D211 - we prefer no blank line)
+    "D213",     # multi-line-summary-second-line (conflicts with D212 - we prefer summary on first line)
+
+    # Too strict or opinionated
+    "D107",     # Missing docstring in __init__
+    "TD002",    # Missing author in TODO
+    "TD003",    # Missing issue link in TODO
+    "FIX002",   # Line contains TODO
+    "S101",     # Use of assert (common in tests)
+    "TRY300",   # Move return to else - sometimes clearer without else
+    "TRY301",   # Raising within try - fine for validation
+    "TRY401",   # Exception logging redundancy - we want to include the exception
+    "C901",     # Function complexity - will refactor later if needed
+    "PLR0912",  # Too many branches - will refactor later if needed
+    "PLR0913",  # Too many arguments - needed for some functions
+    "FBT001",   # Boolean positional argument - fine for our use case
+    "FBT002",   # Boolean default argument - fine for our use case
+    "EXE001",   # Shebang without executable - file is imported not executed
+    "PLR2004",  # Magic values - fine for simple comparisons
+    "PLC0415",  # Import outside top-level - needed to avoid circular imports
+    "S108",     # Hardcoded temp directory - acceptable for this use case
+    "S602",     # Shell=True in subprocess - needed for piping commands
+
+    # Too noisy for this codebase
+    "S603",     # subprocess call - we need to call external commands
+    "S607",     # Starting process with partial path - system commands
+    "TRY003",   # Long exception messages - fine for user-facing errors
+    "EM102",    # Exception uses f-string - fine for this use case
+]
