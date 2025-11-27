@@ -22,7 +22,8 @@ fn main() -> Result<()> {
     println!("  virtiofs mounts: {}", config.virtiofs_mounts.len());
     println!("  symlinks: {}", config.symlinks.len());
     println!("  env vars: {}", config.env_vars.len());
-    println!("  command: {:?}", config.command);
+    println!("  shell: {:?}", config.shell);
+    println!("  script: {:?}", config.script);
 
     // Load kernel modules from configured directory
     system::load_kernel_modules(config.moddir.as_deref())?;
@@ -31,10 +32,39 @@ fn main() -> Result<()> {
     virtiofs::mount_virtiofs_shares(&config.virtiofs_mounts)?;
 
     // TODO: Create symlinks
-    // TODO: Set environment variables
-    // TODO: Execute command
 
-    println!("kdf-init: initialization complete (stub)");
+    // Set environment variables
+    for (key, value) in &config.env_vars {
+        println!("kdf-init: setting env var: {}={}", key, value);
+        std::env::set_var(key, value);
+    }
+
+    // Execute shell
+    let (program, args) = &config.shell;
+    let display_cmd = if args.is_empty() {
+        program.to_string()
+    } else {
+        format!("{} {}", program, args.join(" "))
+    };
+    println!("kdf-init: starting interactive shell: {}", display_cmd);
+
+    let exit_status = system::execute_shell(program, args, &config.console)?;
+
+    if exit_status.success() {
+        println!("kdf-init: shell exited successfully");
+    } else {
+        eprintln!(
+            "kdf-init: shell exited with status: {:?}",
+            exit_status.code()
+        );
+    }
+
+    // TODO: Handle optional script execution
+    if config.script.is_some() {
+        eprintln!("kdf-init: init.script is not yet implemented");
+    }
+
+    println!("kdf-init: initialization complete");
 
     // Shutdown the system
     system::shutdown()?;

@@ -77,9 +77,16 @@ def cmd_build_initramfs(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def cmd_run(args: argparse.Namespace) -> None:
-    """Run QEMU with kernel and initramfs."""
-    # Handle --release flag to resolve kernel from nixpkgs
+def _resolve_kernel_and_initramfs(args: argparse.Namespace) -> tuple[Path, Path]:
+    """Resolve kernel and initramfs paths from args.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Tuple of (kernel_path, initramfs_path)
+
+    """
     if args.release is not None:
         try:
             kernel, initramfs = resolve_kernel_and_initramfs(
@@ -88,37 +95,77 @@ def cmd_run(args: argparse.Namespace) -> None:
             )
             logger.info("Resolved kernel: %s", kernel)
             logger.info("Resolved initramfs: %s", initramfs)
+            return kernel, initramfs
         except Exception as e:
             logger.exception("Failed to resolve kernel from nixpkgs: %s", e)
             sys.exit(1)
-    else:
-        # Use provided kernel
-        kernel = args.kernel
-        if not kernel.exists():
-            logger.error("Kernel not found: %s", kernel)
-            sys.exit(1)
 
-        # Determine which initramfs to use
-        initramfs: Path
-        if args.initramfs is not None:
-            initramfs = args.initramfs
-        else:
-            # Try to use prebuilt initramfs
-            prebuilt_initramfs = get_prebuilt_initramfs()
-            if prebuilt_initramfs is None:
+    # Use provided kernel
+    kernel = args.kernel
+    if not kernel.exists():
+        logger.error("Kernel not found: %s", kernel)
+        sys.exit(1)
+
+    # Determine which initramfs to use
+    initramfs: Path
+    if args.initramfs is not None:
+        initramfs = args.initramfs
+    else:
+        # Try to use prebuilt initramfs
+        prebuilt_initramfs = get_prebuilt_initramfs()
+        if prebuilt_initramfs is None:
+            logger.error(
+                "No initramfs specified and no prebuilt initramfs available. "
+                "Please provide --initramfs or build kdf-cli from the Nix package.",
+            )
+            sys.exit(1)
+        # TODO: ty doesn't understand sys.exit(1) never returns
+        # so it can't narrow the type
+        initramfs = prebuilt_initramfs  # type: ignore[invalid-assignment]
+        logger.info("Using prebuilt initramfs: %s", initramfs)
+
+    if not initramfs.exists():
+        logger.error("Initramfs not found: %s", initramfs)
+        sys.exit(1)
+
+    return kernel, initramfs
+
+
+def _configure_init(args: argparse.Namespace, qemu_cmd: QemuCommand) -> None:
+    """Configure init settings from command-line arguments.
+
+    Args:
+        args: Parsed command-line arguments
+        qemu_cmd: QEMU command builder to configure
+
+    """
+    # Set moddir for kernel module loading
+    if args.moddir:
+        qemu_cmd.init_config.moddir = args.moddir
+
+    # Set environment variables
+    if args.env_vars:
+        for env_spec in args.env_vars:
+            if "=" not in env_spec:
                 logger.error(
-                    "No initramfs specified and no prebuilt initramfs available. "
-                    "Please provide --initramfs or build kdf-cli from the Nix package.",
+                    "Invalid environment variable format: %s (expected KEY=VALUE)",
+                    env_spec,
                 )
                 sys.exit(1)
-            # TODO: ty doesn't understand sys.exit(1) never returns
-            # so it can't narrow the type
-            initramfs = prebuilt_initramfs  # type: ignore[invalid-assignment]
-            logger.info("Using prebuilt initramfs: %s", initramfs)
+            key, value = env_spec.split("=", 1)
+            qemu_cmd.init_config.env_vars[key] = value
 
-        if not initramfs.exists():
-            logger.error("Initramfs not found: %s", initramfs)
-            sys.exit(1)
+    # Set shell (always set from args, with default from argparse)
+    qemu_cmd.init_config.shell = args.shell
+
+    # Set script (optional)
+    if args.script:
+        qemu_cmd.init_config.script = args.script
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    """Run QEMU with kernel and initramfs."""
+    kernel, initramfs = _resolve_kernel_and_initramfs(args)
 
     # Create background task manager
     task_manager = BackgroundTaskManager()
@@ -131,16 +178,14 @@ def cmd_run(args: argparse.Namespace) -> None:
         # Start all background tasks
         task_manager.start_all()
 
-        # Build QEMU command with optional DAX support for virtiofs
-        enable_dax = args.virtiofs_dax and args.virtiofs
-        qemu_cmd = QemuCommand(kernel, initramfs, args.memory, enable_dax)
+        # Build QEMU command
+        qemu_cmd = QemuCommand(kernel, initramfs, args.memory)
 
         # Register all tasks with QEMU (adds runtime info like sockets)
         task_manager.register_all_with_qemu(qemu_cmd)
 
-        # Set moddir for kernel module loading
-        if args.moddir:
-            qemu_cmd.init_config.moddir = args.moddir
+        # Configure init settings
+        _configure_init(args, qemu_cmd)
 
         # Add additional cmdline
         if args.cmdline:
@@ -239,14 +284,32 @@ def main() -> None:
         help="QEMU memory (default: 512M)",
     )
     run_parser.add_argument(
-        "--virtiofs-dax",
-        action="store_true",
-        help="Enable virtiofs DAX (shared memory backing) for better performance",
-    )
-    run_parser.add_argument(
         "--moddir",
         default="/init-modules",
         help="Directory to load kernel modules from (default: /init-modules)",
+    )
+    run_parser.add_argument(
+        "--env",
+        "-e",
+        action="append",
+        dest="env_vars",
+        help=(
+            "Environment variable to set in VM: KEY=VALUE "
+            "(can be specified multiple times)"
+        ),
+    )
+
+    # Shell is always used, script is optional
+    run_parser.add_argument(
+        "--shell",
+        "-s",
+        default="sh -i",
+        help="Shell to start in VM (default: sh -i)",
+    )
+    run_parser.add_argument(
+        "--script",
+        "-c",
+        help="Script to execute in VM (not yet implemented)",
     )
 
     args = parser.parse_args()

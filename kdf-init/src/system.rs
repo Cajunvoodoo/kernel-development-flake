@@ -144,6 +144,81 @@ pub fn load_kernel_modules(modules_dir: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Detach from parent and set up controlling terminal
+///
+/// This should be called in pre_exec to:
+/// - Create a new session with setsid
+/// - Dup console_fd into stdin/stdout/stderr (closes old fds automatically)
+/// - Set TIOCSCTTY on stdin to make it the controlling terminal
+fn detach(console_fd: rustix::fd::BorrowedFd<'_>) -> std::io::Result<()> {
+    use rustix::process::ioctl_tiocsctty;
+    use rustix::stdio::{dup2_stderr, dup2_stdin, dup2_stdout, stdin};
+
+    // Create a new session and become the session leader
+    rustix::process::setsid().map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+
+    // Dup2 console_fd into stdin/stdout/stderr (dup2 closes old fds automatically)
+    dup2_stdin(console_fd).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+
+    dup2_stdout(console_fd).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+
+    dup2_stderr(console_fd).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+
+    // Set stdin as the controlling terminal
+    ioctl_tiocsctty(stdin()).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+
+    Ok(())
+}
+
+pub fn execute_shell(
+    program: &str,
+    args: &[String],
+    console_device: &str,
+) -> Result<std::process::ExitStatus> {
+    use rustix::fs::{open, Mode, OFlags};
+    use std::os::unix::io::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    let display_cmd = if args.is_empty() {
+        program.to_string()
+    } else {
+        format!("{} {}", program, args.join(" "))
+    };
+    println!(
+        "kdf-init: spawning shell: {} on console: {}",
+        display_cmd, console_device
+    );
+
+    // Open console device (add /dev/ prefix) with CLOEXEC, read, and write
+    let console_path = format!("/dev/{}", console_device);
+    let console = open(&console_path, OFlags::RDWR | OFlags::CLOEXEC, Mode::empty())
+        .with_context(|| format!("Failed to open console device: {}", console_path))?;
+
+    let console_fd = console.as_raw_fd();
+
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+
+    // Set up the controlling terminal in pre_exec
+    // Safety: It's safe to borrow the raw fd because it is open post-fork,
+    // and will be closed during exec.
+    unsafe {
+        cmd.pre_exec(move || detach(rustix::fd::BorrowedFd::borrow_raw(console_fd)));
+    }
+
+    // Spawn and wait for completion
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("Failed to spawn shell: {}", display_cmd))?;
+
+    let status = child
+        .wait()
+        .with_context(|| format!("Failed to wait for shell: {}", display_cmd))?;
+
+    Ok(status)
+}
+
 pub fn shutdown() -> Result<()> {
     use rustix::system::reboot;
     use rustix::system::RebootCommand;

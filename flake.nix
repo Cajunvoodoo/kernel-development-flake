@@ -196,7 +196,8 @@
               ruff
               ty
 
-              # kdf-cli editable virtualenv
+              # kdf-cli
+              virtiofsd
               kdf-cli-virtualenv
             ]
             ++ lib.optionals enableRust [

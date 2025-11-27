@@ -13,9 +13,16 @@ test: test-rust
 [parallel]
 check: check-rust check-python check-nix
 
-# Format all code
 [parallel]
-fmt: fix-fmt-rust fix-fmt-python fix-fmt-nix
+fix: fix-rust fix-rust fix-nix
+
+fix-nix: fix-fmt-nix
+
+[parallel]
+fix-rust: fix-fmt-rust fix-lint-rust
+
+[parallel]
+fix-python: fix-fmt-python fix-lint-python
 
 # Fix formatting issues
 [parallel]
@@ -101,4 +108,5 @@ run: build-init
     echo "Running kdf with system kernel..."
     mkdir -p .kdf-resources
     cp kdf-init/target/x86_64-unknown-linux-musl/release/init .kdf-resources/init
-    KDF_RESOURCE_DIR="$PWD/.kdf-resources" kdf run -r
+    export KDF_RESOURCE_DIR="$PWD/.kdf-resources"
+    kdf run -r --virtiofs nixstore:/nix/store:/nix/store --env PATH=/nix/store/bpcshc0jav1hfpdkdh7a9ssrjv6mdx34-busybox-1.36.1/bin --shell /nix/store/bpcshc0jav1hfpdkdh7a9ssrjv6mdx34-busybox-1.36.1/bin/sh
