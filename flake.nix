@@ -45,6 +45,7 @@
       # Flake options
       enableBPF = true;
       enableRust = true;
+      enableKdf = true;
 
       buildLib = pkgs.callPackage ./build { };
 
@@ -52,6 +53,7 @@
         inherit
           enableBPF
           enableRust
+          enableKdf
           ;
       };
       inherit (linuxConfigs) kernelArgs kernelConfig;
@@ -178,8 +180,6 @@
             with pkgs;
             [
               bear # for compile_commands.json, use bear -- make
-              # runQemu (TODO: replace with kdf-cli)
-              # runGdb (TODO: replace with kdf-cli)
               git
               gdb
               qemu
@@ -202,18 +202,17 @@
             ]
             ++ lib.optionals enableRust [
               rustToolchain
-              # genRustAnalyzer
+              genRustAnalyzer
             ];
-          buildInputs = [
-            pkgs.nukeReferences
-            # kernel.dev
-          ];
+
+          buildInputs = [ ];
         in
         pkgs.mkShell {
           inherit buildInputs nativeBuildInputs;
-          # KERNEL = kernel.dev;
-          # KERNEL_VERSION = kernel.modDirVersion;
-          # RUST_LIB_SRC = pkgs.rustPlatform.rustLibSrc;
+          KERNEL = kernel.dev;
+          KERNEL_VERSION = kernel.modDirVersion;
+          KERNEL_IMG_DIR = kernel;
+          RUST_LIB_SRC = pkgs.rustPlatform.rustLibSrc;
 
           # UV environment variables for kdf-cli development
           UV_NO_SYNC = "1";
@@ -242,6 +241,8 @@
           genRustAnalyzer
           kdf-init
           kdf-cli
+          runGdb
+          runQemu
           ;
         kernelConfig = configfile;
       };

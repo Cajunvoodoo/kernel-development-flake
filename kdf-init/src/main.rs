@@ -7,6 +7,16 @@ mod virtiofs;
 use anyhow::Result;
 
 fn main() -> Result<()> {
+    // Run main logic and always shutdown, even on error
+    if let Err(e) = run() {
+        eprintln!("kdf-init: fatal error: {:?}", e);
+        let _ = system::shutdown();
+        return Err(e);
+    }
+    Ok(())
+}
+
+fn run() -> Result<()> {
     println!("kdf-init: starting minimal Rust init");
 
     // Mount kernel filesystems

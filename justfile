@@ -101,12 +101,14 @@ fix-fmt-nix:
 build-init:
     cd kdf-init && cargo build --release --target x86_64-unknown-linux-musl
 
-# Build kdf-init and run with system kernel
+# Build kdf-init and run with flake kernel
 run: build-init
     #!/usr/bin/env bash
     set -e
-    echo "Running kdf with system kernel..."
+    echo "Running kdf with flake kernel..."
     mkdir -p .kdf-resources
     cp kdf-init/target/x86_64-unknown-linux-musl/release/init .kdf-resources/init
+    echo "Building initramfs..."
+    kdf build initramfs .kdf-resources/init --output .kdf-resources/initramfs.cpio
     export KDF_RESOURCE_DIR="$PWD/.kdf-resources"
-    kdf run -r --virtiofs nixstore:/nix/store:/nix/store --env PATH=/nix/store/bpcshc0jav1hfpdkdh7a9ssrjv6mdx34-busybox-1.36.1/bin --shell /nix/store/bpcshc0jav1hfpdkdh7a9ssrjv6mdx34-busybox-1.36.1/bin/sh
+    kdf run --kernel "$KERNEL_IMG_DIR/bzImage" --virtiofs nixstore:/nix/store:/nix/store --env PATH=/nix/store/bpcshc0jav1hfpdkdh7a9ssrjv6mdx34-busybox-1.36.1/bin --shell /nix/store/bpcshc0jav1hfpdkdh7a9ssrjv6mdx34-busybox-1.36.1/bin/sh

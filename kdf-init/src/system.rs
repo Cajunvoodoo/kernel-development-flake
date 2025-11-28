@@ -155,17 +155,35 @@ fn detach(console_fd: rustix::fd::BorrowedFd<'_>) -> std::io::Result<()> {
     use rustix::stdio::{dup2_stderr, dup2_stdin, dup2_stdout, stdin};
 
     // Create a new session and become the session leader
-    rustix::process::setsid().map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+    rustix::process::setsid().map_err(|e| {
+        eprintln!("kdf-init: setsid failed: errno {}", e.raw_os_error());
+        std::io::Error::from_raw_os_error(e.raw_os_error())
+    })?;
 
     // Dup2 console_fd into stdin/stdout/stderr (dup2 closes old fds automatically)
-    dup2_stdin(console_fd).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+    dup2_stdin(console_fd).map_err(|e| {
+        eprintln!("kdf-init: dup2_stdin failed: errno {}", e.raw_os_error());
+        std::io::Error::from_raw_os_error(e.raw_os_error())
+    })?;
 
-    dup2_stdout(console_fd).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+    dup2_stdout(console_fd).map_err(|e| {
+        eprintln!("kdf-init: dup2_stdout failed: errno {}", e.raw_os_error());
+        std::io::Error::from_raw_os_error(e.raw_os_error())
+    })?;
 
-    dup2_stderr(console_fd).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+    dup2_stderr(console_fd).map_err(|e| {
+        eprintln!("kdf-init: dup2_stderr failed: errno {}", e.raw_os_error());
+        std::io::Error::from_raw_os_error(e.raw_os_error())
+    })?;
 
     // Set stdin as the controlling terminal
-    ioctl_tiocsctty(stdin()).map_err(|e| std::io::Error::from_raw_os_error(e.raw_os_error()))?;
+    ioctl_tiocsctty(stdin()).map_err(|e| {
+        eprintln!(
+            "kdf-init: ioctl_tiocsctty failed: errno {}",
+            e.raw_os_error()
+        );
+        std::io::Error::from_raw_os_error(e.raw_os_error())
+    })?;
 
     Ok(())
 }
