@@ -1,58 +1,67 @@
-# Kernel Module Flake
+# Kernel Development Flake
 
-A nix flake dedicated to making the developer tooling around kernel module development easier. There are two ways to use this flake:
-
-1. Clone this flake and start hacking.
-2. Add this flake as an input to your own flake and use the provided scripts and builder functions.
-
-The first way is recommended if you just want to get up and running immediately and start hacking. The second way is for someone who wants to integrate this into their own kernel module development process without keeping a thousand lines of Nix up to date.
+A nix flake dedicated to making the developer tooling around kernel development
+(both in-tree and out-of-tree) easier. Add this flake as an input, and use the
+provided scripts, the 'kdf' cli, and builder functions.
 
 ## Features
 
-* Compile a minimal kernel designed for debugging (Time to build on Ryzen 5 3600 - 6 cores):
-
-![time](https://user-images.githubusercontent.com/19742638/201808063-3315027f-44c6-4bd7-bf48-a835b1ffe096.png)
-
-* Enabled by default Rust support & the ability to switch to the Rust-For-Linux branch
-* Nix functions for building Rust and C kernel modules
-* QEMU VM support using Nix's built in functions for generating an initramfs
+* Compile a minimal kernels designed for debugging using nix.
+  * Rust support by default.
+* Nix builders for Rust and C kernel modules
+* The 'kdf' cli for running a VMs with ultra-fast boot times with access to the
+  host file system for development.
+  * Powered by 'kdf-init', a small rust '/init' inspired by
+    [virtme-ng](https://github.com/arighi/virtme-ng).
+* Run VMs
 * Remote GDB debugging through the VM
 * Out of tree rust-analyzer support
 
 ## Cloning the flake
 
-Get started by cloning this repository.
+While the recommended way to get started is to use this flake as an input. You
+can try out all the features by cloning this repository.
 
-```bash
-git clone git@github.com:jordanisaacs/kernel-module-flake
-cd kernel-module-flake
+### kdf CLI
 
-# nix develop .# or direnv allow to get into the dev environment
+Run a VM for live-development which is powered by virtiofs mounts and the
+minimal 'kdf-init'.
 
-runvm   # Calls QEMU with the necessary commands, uses sudo for enabling kvm
+Enter the devshell with 'direnv allow' or 'nix develop .#'.
 
-#### Inside QEMU
-# insmod module/helloworld.ko   # Load the kernel module
-# rmmod module/helloworld.ko    # Unload the module
-#### C^A+X to exit
-#### In another terminal while the VM is running
-# rungdb                        # Connect to the VM with remote GDB debugging
-### (GDB)
-## lx-symbols-nix               # Runs lx-symbols with the nix store paths of the modules
-####
+Startup the VM with `just run`. This drop you into a shell with the current
+working directory mounted into the VM. Uses 'kdf run' under the hood. Edit and
+recompile modules on the host with built module being available inside the VM.
 
+To debug just call `just debug` which will attach a debugger to the VM. Call
+`lx-symbols-runtime` to load symbols for the kernel modules.
 
-cd helloworld
-bear -- make            # generate the compile_commands.json
-vim helloworld.c        # Start editing!
+### Nix-based VM
 
-# exit and then nix develop .# or just direnv reload
-# to rebuild and update the runvm command
-```
+This is a nix-built reproducible VM image that includes the nix-built kernel
+modules.  Along with a GDB helper.
+
+Get the '.#runQemu' and '.#runGdb' outputs into your path.
+
+Run `runvm` to run QEMU (uses sudo for enabling kvm). Inside qemu the nix-built
+kernel modules are available in the 'modules/' directory.
+
+Run `rungdb` to attach to the QEMU VM with all the correct source paths
+loaded. Run `lx-symbols-nix` in GDB to get symbols of the modules.
 
 ## Flake as an input
 
-The `lib.builders` output of the flake exposes all the components as Nix builder functions. You can use them to compile your own kernel, configfile, initramfs, and generate the `runvm` and `rungdb` commands. An example of how the functions are used is below. See the `flake.nix` file for more details, and the `build` directory for the arguments that can be passed to the builders.
+The `lib.builders` output of the flake exposes all the components as Nix builder
+functions. You can use them to compile your own kernel, configfile, initramfs,
+and generate the `runvm` and `rungdb` commands. An example of how the functions
+are used is below. See the `flake.nix` file for more details, and the `build`
+directory for the arguments that can be passed to the builders.
+
+There is also the 'kdf' CLI which is recommended for live development. It is
+currently under documented. See the `justfile` and `just {run/debug}` for an
+example of how to use. You will want to add your own helper similar to `just
+run` that uses the CLI parameters to setup the VM. E.g. if developing in-tree,
+using a minimal nix-built kernel, or just pulling one from nixpkgs with `-r`.
 
 ```nix
 {
@@ -102,7 +111,29 @@ The `lib.builders` output of the flake exposes all the components as Nix builder
 
 ## How it works
 
-### Kernel Build
+### kdf Cli
+
+#### Initramfs
+
+A tiny static `/init` (see 'kdf-init') that mounts essential kernel filesystems,
+loads any provided kernel modules, mounts host filesystems using virtiofs, then
+runs the user provided command.
+
+Can build using `kdf build initramfs`. Under the hood, automatically builds an
+initramfs if running a VM using `kdf run -r` and adds the kernel modules needed
+from the nix linux package.
+
+#### QEMU VM
+
+The `kdf run` command automatically uses the built `/init`/initramfs which is
+pre-packaged. It handles the lifetime of the required `virtiofsd` instances.
+
+There is a helper provided `--nix` that will mount the '/nix/store' for you and
+evaluate/add the bin paths to your `PATH`.
+
+### Nix Builds
+
+#### Linux Kernel
 
 A custom kernel is built according to Chris Done's [Build and run minimal Linux / Busybox systems in Qemu](https://gist.github.com/chrisdone/02e165a0004be33734ac2334f215380e). Extra config is added which I got through Kaiwan Billimoria's [Linux Kernel Programming](https://www.packtpub.com/product/linux-kernel-programming/9781789953435).
 
@@ -112,25 +143,25 @@ Compiling the kernel is the same as `Nix` but modified to not remove any of the 
 
 Then a new package set called `linuxDev` is then added as an overlay using `linuxPackagesFor`.
 
-### Rust Support
+#### Rust Support
 
-Rust support is enabled by using the default configuration with `enableRust = true` or setting `RUST = true` in the kernel configuration. The build will automatically pick up up the value set in the kernel config and build correctly.
+Rust support is enabled by using the default configuration with `enableRust = true`, or setting `RUST = true` in the kernel configuration. The build will automatically pick up up the value set in the kernel config and build correctly.
 
-### Kernel Modules
+#### Kernel Modules
 
 The kernel modules are built using nix. You can build them manually with `nix build .#helloworld` and `nix build .#rust`. They are copied into the initramfs for you. There is a `buildCModule` and `buildRustModule` function exposed for building your own modules (`build/rust-module.nix` and `build/c-module.nix`).
 
-### eBPF Support
+#### eBPF Support
 
 eBPF is enabled by default. This makes the initrd much larger due to needing python for `bcc`, and the compile time of the linux kernel longer. You can disable it by setting `enableBPF = false` in `flake.nix`.
 
-### Remote GDB
-
-Remote GDB debugging is activated through the `rungdb` command (`build/run-gdb.nix`). It wraps GDB to provide the kernel source in the search path, loads `vmlinux`, sources the kernel gdb scripts, and then connects to the VM. An alias is provided `lx-symbols-nix` that runs the `lx-symbols` command with all the provided modules' nix store paths as search directories.
-
-### initramfs
+#### initramfs
 
 The initial ram disk is built using the new [make-initrd-ng](https://github.com/NixOS/nixpkgs/tree/master/pkgs/build-support/kernel/make-initrd-ng). It is called through its [nix wrapper](https://github.com/NixOS/nixpkgs/blob/master/pkgs/build-support/kernel/make-initrd-ng.nix) which safely copies the nix store packages needed over. To see how to include modules and other options see the builder, `build/initramfs.nix`.
+
+#### GDB
+
+Remote GDB debugging is activated through the `rungdb` command (`build/run-gdb.nix`). It wraps GDB to provide the kernel source in the search path, loads `vmlinux`, sources the kernel gdb scripts, and then connects to the VM. An alias is provided `lx-symbols-nix` that runs the `lx-symbols` command with all the provided modules' nix store paths as search directories.
 
 ### Editor
 
@@ -165,7 +196,6 @@ in ''
   },
 '';
 ```
-
 
 ### Direnv
 
