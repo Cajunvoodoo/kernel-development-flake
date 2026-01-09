@@ -7,7 +7,8 @@
   memory ? "1G",
 }:
 writeScriptBin "runvm" ''
-  sudo qemu-system-x86_64 \
+#! /usr/bin/env bash
+  qemu-system-x86_64 \
     -enable-kvm \
     -m ${memory} \
     -kernel ${kernel}/bzImage \
