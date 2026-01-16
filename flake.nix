@@ -44,7 +44,7 @@
 
       # Flake options
       enableBPF = true;
-      enableRust = true;
+      enableRust = false;
       enableKdf = true;
 
       buildLib = pkgs.callPackage ./build { };

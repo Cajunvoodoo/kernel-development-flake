@@ -6,7 +6,7 @@
   enableKdf,
 }:
 let
-  version = "6.17.8";
+  version = "6.6.119";
   localVersion = "-development";
 in
 {
@@ -16,14 +16,14 @@ in
     inherit version;
     src = pkgs.fetchurl {
       url = "mirror://kernel/linux/kernel/v6.x/linux-${version}.tar.xz";
-      sha256 = "1nmi5xmsys023xgy55dikm1ihim7fp7pf2kc3k00d9zwfm5fd3as";
+      sha256 = "sha256-PaCbmAu0BMwoeTR5uy1sY2UiZ5IV/6ZaBMiTV1JT5eg=";
     };
 
     # Add kernel patches here
     kernelPatches = [
-      {
-        patch = ../patches/0001-rust-don-t-assert-sysroot_src-location.patch;
-      }
+      # {
+      #   patch = ../patches/0001-rust-don-t-assert-sysroot_src-location.patch;
+      # }
     ];
 
     inherit localVersion;

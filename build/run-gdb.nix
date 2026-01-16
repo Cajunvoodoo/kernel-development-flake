@@ -21,6 +21,7 @@ let
 in
 # Need a to go a directroy above source (eg. scripts) because vmlinux is using relative path
 writeScriptBin "rungdb" ''
+#! /usr/bin/env bash
   ${gdb}/bin/gdb \
     ${searchDirs} \
     -ex "dir ${kernel.dev}/lib/modules/${kernel.modDirVersion}/source/scripts" \
